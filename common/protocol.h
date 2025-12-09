@@ -75,7 +75,13 @@ typedef struct {
     char group_name[MAX_GROUPNAME];
     char owner[MAX_USERNAME];
     uint32_t member_count;
-} GroupInfo;
+} GroupRecord;
+
+// Cấu trúc thông tin thành viên nhóm
+typedef struct {
+    char username[MAX_USERNAME];
+    int is_admin; /* 0 = member, non-zero = owner/admin */
+} MemberRecord;
 
 // Hàm tiện ích
 int send_message(int sockfd, MessageHeader *header, void *data);

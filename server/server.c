@@ -1,4 +1,7 @@
 #include "../common/protocol.h"
+#include "user_db.h"
+#include "group_db.h"
+
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -59,47 +62,252 @@ void remove_client(int index) {
     pthread_mutex_unlock(&clients_mutex);
 }
 
-// Xử lý đăng ký
-void handle_register(int client_index, AuthRequest *auth) {
-    printf("Register request: %s\n", auth->username);
-    
-    // TODO: Kiểm tra username đã tồn tại chưa
-    // TODO: Lưu thông tin vào database
-    
+// Gửi response
+void send_response(int client_index, uint32_t status, const char *message) {
     Response resp;
-    resp.status = RESP_SUCCESS;
-    strcpy(resp.message, "Registration successful");
+    resp.status = status;
+    strncpy(resp.message, message, sizeof(resp.message) - 1);
+    resp.message[sizeof(resp.message) - 1] = '\0';
     
     MessageHeader header;
-    header.command = RESP_SUCCESS;
+    header.command = status;
     header.data_length = sizeof(Response);
     header.session_id = clients[client_index].session_id;
     
     send_message(clients[client_index].sockfd, &header, &resp);
 }
 
+// Xử lý đăng ký
+void handle_register(int client_index, AuthRequest *auth) {
+    printf("Register request: %s\n", auth->username);
+    
+    int result = register_user(auth->username, auth->password);
+    
+    if (result == 0) {
+        send_response(client_index, RESP_SUCCESS, "Registration successful");
+    } else if (result == -1) {
+        send_response(client_index, RESP_ERROR, "Username already exists");
+    } else {
+        send_response(client_index, RESP_ERROR, "Registration failed");
+    }
+}
+
 // Xử lý đăng nhập
 void handle_login(int client_index, AuthRequest *auth) {
     printf("Login request: %s\n", auth->username);
     
-    // TODO: Kiểm tra username/password từ database
+    if (authenticate_user(auth->username, auth->password)) {
+        pthread_mutex_lock(&clients_mutex);
+        clients[client_index].is_logged_in = 1;
+        strcpy(clients[client_index].username, auth->username);
+        pthread_mutex_unlock(&clients_mutex);
+        
+        send_response(client_index, RESP_SUCCESS, "Login successful");
+        printf("User logged in: %s\n", auth->username);
+    } else {
+        send_response(client_index, RESP_ERROR, "Invalid username or password");
+    }
+}
+
+// Xử lý tạo nhóm
+void handle_create_group(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
     
+    char *group_name = (char *)data;
+    printf("Create group request: %s by %s\n", group_name, clients[client_index].username);
+    
+    int group_id = create_group(group_name, clients[client_index].username);
+    
+    if (group_id > 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Group created successfully (ID: %d)", group_id);
+        send_response(client_index, RESP_SUCCESS, msg);
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to create group");
+    }
+}
+
+// Xử lý thêm thành viên vào nhóm
+void handle_add_member(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+    
+    // Format: group_id:username
+    char *str = (char *)data;
+    uint32_t group_id;
+    char username[MAX_USERNAME];
+    
+    if (sscanf(str, "%u:%s", &group_id, username) != 2) {
+        send_response(client_index, RESP_ERROR, "Invalid format");
+        return;
+    }
+    
+    int result = add_member_to_group(group_id, username, clients[client_index].username);
+    
+    if (result == 0) {
+        send_response(client_index, RESP_SUCCESS, "Member added successfully");
+    } else if (result == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can add members");
+    } else if (result == -2) {
+        send_response(client_index, RESP_ERROR, "User is already a member");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to add member");
+    }
+}
+
+// Xử lý xóa thành viên khỏi nhóm
+void handle_remove_member(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    // Format: group_id:username
+    char *str = (char *)data;
+    uint32_t group_id;
+    char username[MAX_USERNAME];
+
+    if (sscanf(str, "%u:%s", &group_id, username) != 2) {
+        send_response(client_index, RESP_ERROR, "Invalid format");
+        return;
+    }
+
+    int result = remove_member_from_group(group_id, username, clients[client_index].username);
+
+    if (result == 0) {
+        send_response(client_index, RESP_SUCCESS, "Member removed successfully");
+    } else if (result == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can remove members");
+    } else if (result == -2) {
+        send_response(client_index, RESP_ERROR, "Cannot remove the group owner");
+    } else if (result == -4) {
+        send_response(client_index, RESP_NOT_FOUND, "User is not a member of this group");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to remove member");
+    }
+}
+
+// Xử lý liệt kê nhóm
+void handle_list_groups(int client_index) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+    
+    GroupRecordDB *groups_db = NULL;
+    int count = 0;
+    
+    get_user_groups(clients[client_index].username, &groups_db, &count);
+    
+    if (count == 0) {
+        send_response(client_index, RESP_SUCCESS, "You are not in any groups");
+        if (groups_db) free(groups_db);
+        return;
+    }
+    
+    // Chuyển đổi từ DB record sang protocol record để gửi đi
+    GroupRecord *groups_to_send = malloc(sizeof(GroupRecord) * count);
+    if (!groups_to_send) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(groups_db);
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        groups_to_send[i].group_id = groups_db[i].group_id;
+        strncpy(groups_to_send[i].group_name, groups_db[i].group_name, MAX_GROUPNAME);
+        strncpy(groups_to_send[i].owner, groups_db[i].owner, MAX_USERNAME);
+        groups_to_send[i].member_count = groups_db[i].member_count;
+    }
+
+    // Tạo payload gồm [Response][Data]
+    size_t response_size = sizeof(Response);
+    size_t data_size = sizeof(GroupRecord) * count;
+    size_t total_size = response_size + data_size;
+    char *payload = malloc(total_size);
+
     Response resp;
-    resp.status = RESP_SUCCESS;
-    strcpy(resp.message, "Login successful");
-    
-    // Cập nhật trạng thái
-    pthread_mutex_lock(&clients_mutex);
-    clients[client_index].is_logged_in = 1;
-    strcpy(clients[client_index].username, auth->username);
-    pthread_mutex_unlock(&clients_mutex);
+    snprintf(resp.message, sizeof(resp.message), "Here are your groups");
+    memcpy(payload, &resp, response_size);
+    memcpy(payload + response_size, groups_to_send, data_size);
     
     MessageHeader header;
     header.command = RESP_SUCCESS;
-    header.data_length = sizeof(Response);
+    header.data_length = total_size;
     header.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &header, payload);
     
-    send_message(clients[client_index].sockfd, &header, &resp);
+    free(payload);
+    free(groups_to_send);
+    free(groups_db);
+    printf("Sent %d groups to %s\n", count, clients[client_index].username);
+}
+
+// Xử lý liệt kê thành viên nhóm
+void handle_list_members(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+    
+    uint32_t group_id = *((uint32_t *)data);
+    
+    // Kiểm tra user có trong nhóm không
+    if (!is_member_of_group(group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+    
+    MemberRecordDB *members_db = NULL;
+    int count = 0;
+    
+    get_group_members(group_id, &members_db, &count);
+    
+    if (count == 0) {
+        send_response(client_index, RESP_SUCCESS, "No members found or group does not exist");
+        if (members_db) free(members_db);
+        return;
+    }
+    
+    // Chuyển đổi từ DB record sang protocol record
+    MemberRecord *members_to_send = malloc(sizeof(MemberRecord) * count);
+    if (!members_to_send) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(members_db);
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        strncpy(members_to_send[i].username, members_db[i].username, MAX_USERNAME);
+        members_to_send[i].is_admin = members_db[i].is_admin;
+    }
+
+    // Tạo payload gồm [Response][Data]
+    size_t response_size = sizeof(Response);
+    size_t data_size = sizeof(MemberRecord) * count;
+    size_t total_size = response_size + data_size;
+    char *payload = malloc(total_size);
+
+    Response resp;
+    snprintf(resp.message, sizeof(resp.message), "Members of group %u", group_id);
+    memcpy(payload, &resp, response_size);
+    memcpy(payload + response_size, members_to_send, data_size);
+
+    MessageHeader header;
+    header.command = RESP_SUCCESS;
+    header.data_length = total_size;
+    header.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &header, payload);
+    
+    free(payload);
+    free(members_to_send);
+    free(members_db);
+    printf("Sent %d members to %s for group %u\n", count, clients[client_index].username, group_id);
 }
 
 // Thread xử lý client
@@ -140,18 +348,29 @@ void *client_handler(void *arg) {
                 printf("Client logout [Index: %d]\n", client_index);
                 goto cleanup;
                 
+            case CMD_CREATE_GROUP:
+                handle_create_group(client_index, data);
+                break;
+                
+            case CMD_ADD_MEMBER:
+                handle_add_member(client_index, data);
+                break;
+
+            case CMD_REMOVE_MEMBER:
+                handle_remove_member(client_index, data);
+                break;
+                
+            case CMD_LIST_GROUPS:
+                handle_list_groups(client_index);
+                break;
+                
+            case CMD_LIST_GROUP_MEMBERS:
+                handle_list_members(client_index, data);
+                break;
+                
             default:
                 printf("Unknown command: %u\n", header.command);
-                Response resp;
-                resp.status = RESP_ERROR;
-                strcpy(resp.message, "Unknown command");
-                
-                MessageHeader resp_header;
-                resp_header.command = RESP_ERROR;
-                resp_header.data_length = sizeof(Response);
-                resp_header.session_id = header.session_id;
-                
-                send_message(clients[client_index].sockfd, &resp_header, &resp);
+                send_response(client_index, RESP_ERROR, "Unknown command");
                 break;
         }
         
@@ -169,6 +388,17 @@ int main() {
     int server_fd, client_fd;
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len = sizeof(client_addr);
+    
+    // Khởi tạo databases
+    if (init_user_db() < 0) {
+        fprintf(stderr, "Failed to initialize user database\n");
+        exit(EXIT_FAILURE);
+    }
+    
+    if (init_group_db() < 0) {
+        fprintf(stderr, "Failed to initialize group database\n");
+        exit(EXIT_FAILURE);
+    }
     
     init_clients();
     
@@ -202,6 +432,7 @@ int main() {
         exit(EXIT_FAILURE);
     }
     
+    printf("=== File Sharing Server Started ===\n");
     printf("Server listening on port %d...\n", PORT);
     
     // Accept connections

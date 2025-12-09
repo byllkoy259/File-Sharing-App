@@ -1,6 +1,6 @@
 CC = gcc
 CFLAGS = -Wall -Wextra -pthread -g
-LDFLAGS = -pthread
+LDFLAGS = -lssl -lcrypto -pthread
 
 # Directories
 COMMON_DIR = common
@@ -14,7 +14,7 @@ CLIENT_BIN = $(BIN_DIR)/client
 
 # Source files
 COMMON_SRC = $(COMMON_DIR)/protocol.c
-SERVER_SRC = $(SERVER_DIR)/server.c
+SERVER_SRC = $(SERVER_DIR)/server.c $(SERVER_DIR)/user_db.c $(SERVER_DIR)/group_db.c
 CLIENT_SRC = $(CLIENT_DIR)/client.c
 
 # Object files
@@ -28,13 +28,13 @@ all: $(SERVER_BIN) $(CLIENT_BIN)
 # Build server
 $(SERVER_BIN): $(COMMON_OBJ) $(SERVER_OBJ)
 	@mkdir -p $(BIN_DIR)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 	@echo "✓ Server built successfully at $@"
 
 # Build client
 $(CLIENT_BIN): $(COMMON_OBJ) $(CLIENT_OBJ)
 	@mkdir -p $(BIN_DIR)
-	$(CC) $(LDFLAGS) -o $@ $^
+	$(CC) -o $@ $^ $(LDFLAGS)
 	@echo "✓ Client built successfully at $@"
 
 # Compile .c to .o
