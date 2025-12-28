@@ -24,6 +24,14 @@ typedef enum {
     CMD_REMOVE_MEMBER = 13,
     CMD_LIST_GROUPS = 14,
     CMD_LIST_GROUP_MEMBERS = 15,
+    CMD_REQUEST_JOIN_GROUP = 30,
+    CMD_LIST_JOIN_REQUESTS = 31,
+    CMD_DECIDE_JOIN_REQUEST = 32,
+    CMD_INVITE_TO_GROUP = 33,
+    CMD_LIST_INVITATIONS = 34,
+    CMD_DECIDE_INVITATION = 35,
+    CMD_LEAVE_GROUP = 36,
+    CMD_TRANSFER_GROUP_OWNER = 37,
     
     // File operations
     CMD_UPLOAD_FILE = 20,
@@ -82,6 +90,52 @@ typedef struct {
     char username[MAX_USERNAME];
     int is_admin; /* 0 = member, non-zero = owner/admin */
 } MemberRecord;
+
+// Payload đơn giản: group + username (dùng cho invite, kick, transfer, v.v.)
+typedef struct {
+    uint32_t group_id;
+    char username[MAX_USERNAME];
+} GroupUserPayload;
+
+// Trạng thái chung cho yêu cầu/invitation
+typedef enum {
+    REQUEST_STATUS_PENDING = 0,
+    REQUEST_STATUS_APPROVED = 1,
+    REQUEST_STATUS_REJECTED = 2
+} RequestStatus;
+
+// Cấu trúc yêu cầu tham gia nhóm (gửi/nhận)
+typedef struct {
+    uint32_t request_id;
+    uint32_t group_id;
+    char username[MAX_USERNAME]; /* requester */
+    uint32_t status;             /* RequestStatus */
+    uint64_t created_at;
+    uint64_t reviewed_at;
+} JoinRequestInfo;
+
+// Cấu trúc lời mời tham gia nhóm (gửi/nhận)
+typedef struct {
+    uint32_t invite_id;
+    uint32_t group_id;
+    char owner[MAX_USERNAME];
+    char invitee[MAX_USERNAME];
+    uint32_t status;             /* RequestStatus (approve == accept) */
+    uint64_t created_at;
+    uint64_t reviewed_at;
+} GroupInviteInfo;
+
+// Payload quyết định (approve/reject hoặc accept/decline)
+typedef struct {
+    uint32_t id;      /* request_id hoặc invite_id */
+    uint32_t approve; /* 1 = approve/accept, 0 = reject/decline */
+} DecisionPayload;
+
+// Payload chuyển chủ sở hữu nhóm
+typedef struct {
+    uint32_t group_id;
+    char new_owner[MAX_USERNAME];
+} TransferOwnerPayload;
 
 // Hàm tiện ích
 int send_message(int sockfd, MessageHeader *header, void *data);

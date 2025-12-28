@@ -4,6 +4,10 @@
 #include <string.h>
 
 static uint32_t next_group_id = 1;
+static uint32_t next_join_request_id = 1;
+static uint32_t next_invite_id = 1;
+static pthread_mutex_t join_req_mutex = PTHREAD_MUTEX_INITIALIZER;
+static pthread_mutex_t invite_mutex = PTHREAD_MUTEX_INITIALIZER;
 
 // Khởi tạo database
 int init_group_db() {
@@ -28,6 +32,34 @@ int init_group_db() {
     if (fp == NULL) {
         perror("Failed to initialize member database");
         return -1;
+    }
+    fclose(fp);
+
+    // Tạo file yêu cầu tham gia nếu chưa có
+    fp = fopen(GROUP_JOIN_REQUEST_FILE, "ab+");
+    if (fp == NULL) {
+        perror("Failed to initialize join request database");
+        return -1;
+    }
+    JoinRequestRecordDB req;
+    while (fread(&req, sizeof(JoinRequestRecordDB), 1, fp) == 1) {
+        if (req.request_id >= next_join_request_id) {
+            next_join_request_id = req.request_id + 1;
+        }
+    }
+    fclose(fp);
+
+    // Tạo file lời mời nếu chưa có
+    fp = fopen(GROUP_INVITE_FILE, "ab+");
+    if (fp == NULL) {
+        perror("Failed to initialize invite database");
+        return -1;
+    }
+    GroupInviteRecordDB invite;
+    while (fread(&invite, sizeof(GroupInviteRecordDB), 1, fp) == 1) {
+        if (invite.invite_id >= next_invite_id) {
+            next_invite_id = invite.invite_id + 1;
+        }
     }
     fclose(fp);
     
@@ -402,5 +434,490 @@ int delete_group(uint32_t group_id, const char *username) {
     }
     
     printf("Group deleted: %u by %s\n", group_id, username);
+    return 0;
+}
+
+// Tạo yêu cầu tham gia nhóm
+int create_join_request(uint32_t group_id, const char *requester) {
+    GroupRecordDB group;
+    if (get_group_info(group_id, &group) != 0 || !group.is_active) {
+        return -3; // Nhóm không tồn tại
+    }
+
+    pthread_mutex_lock(&join_req_mutex);
+    FILE *fp = fopen(GROUP_JOIN_REQUEST_FILE, "rb+");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&join_req_mutex);
+        return -1;
+    }
+
+    JoinRequestRecordDB req;
+    while (fread(&req, sizeof(JoinRequestRecordDB), 1, fp) == 1) {
+        if (req.group_id == group_id &&
+            strcmp(req.requester, requester) == 0 &&
+            req.status == REQUEST_STATUS_PENDING) {
+            fclose(fp);
+            pthread_mutex_unlock(&join_req_mutex);
+            return -2; // Đã có request pending
+        }
+    }
+    fclose(fp);
+
+    fp = fopen(GROUP_JOIN_REQUEST_FILE, "ab");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&join_req_mutex);
+        return -1;
+    }
+
+    JoinRequestRecordDB new_req;
+    new_req.request_id = next_join_request_id++;
+    new_req.group_id = group_id;
+    strncpy(new_req.requester, requester, MAX_USERNAME - 1);
+    new_req.requester[MAX_USERNAME - 1] = '\0';
+    new_req.status = REQUEST_STATUS_PENDING;
+    new_req.requested_at = time(NULL);
+    new_req.reviewed_by[0] = '\0';
+    new_req.reviewed_at = 0;
+
+    int rc = (fwrite(&new_req, sizeof(JoinRequestRecordDB), 1, fp) == 1) ? 0 : -1;
+    fclose(fp);
+    pthread_mutex_unlock(&join_req_mutex);
+    if (rc == 0) {
+        return (int)new_req.request_id;
+    }
+    return -1;
+}
+
+// Liệt kê request cho owner (filter_group_id = 0 => tất cả nhóm)
+int list_join_requests_for_owner(const char *owner, JoinRequestRecordDB **requests, int *count, uint32_t filter_group_id) {
+    *requests = NULL;
+    *count = 0;
+
+    pthread_mutex_lock(&join_req_mutex);
+    FILE *fp = fopen(GROUP_JOIN_REQUEST_FILE, "rb");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&join_req_mutex);
+        return -1;
+    }
+
+    JoinRequestRecordDB req;
+    int tmp_count = 0;
+    while (fread(&req, sizeof(JoinRequestRecordDB), 1, fp) == 1) {
+        if (req.status != REQUEST_STATUS_PENDING) {
+            continue;
+        }
+        GroupRecordDB group;
+        if (get_group_info(req.group_id, &group) == 0 &&
+            group.is_active &&
+            strcmp(group.owner, owner) == 0 &&
+            (filter_group_id == 0 || req.group_id == filter_group_id)) {
+            tmp_count++;
+        }
+    }
+
+    if (tmp_count == 0) {
+        fclose(fp);
+        pthread_mutex_unlock(&join_req_mutex);
+        *count = 0;
+        return 0;
+    }
+
+    *requests = malloc(sizeof(JoinRequestRecordDB) * tmp_count);
+    if (*requests == NULL) {
+        fclose(fp);
+        pthread_mutex_unlock(&join_req_mutex);
+        return -2;
+    }
+
+    rewind(fp);
+    int idx = 0;
+    while (fread(&req, sizeof(JoinRequestRecordDB), 1, fp) == 1 && idx < tmp_count) {
+        if (req.status != REQUEST_STATUS_PENDING) {
+            continue;
+        }
+        GroupRecordDB group;
+        if (get_group_info(req.group_id, &group) == 0 &&
+            group.is_active &&
+            strcmp(group.owner, owner) == 0 &&
+            (filter_group_id == 0 || req.group_id == filter_group_id)) {
+            (*requests)[idx++] = req;
+        }
+    }
+    fclose(fp);
+    pthread_mutex_unlock(&join_req_mutex);
+    *count = idx;
+    return 0;
+}
+
+// Owner approve/reject request
+int decide_join_request(uint32_t request_id, const char *owner, int approve, char *requester_out, uint32_t *group_id_out) {
+    pthread_mutex_lock(&join_req_mutex);
+    FILE *fp = fopen(GROUP_JOIN_REQUEST_FILE, "rb+");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&join_req_mutex);
+        return -1;
+    }
+
+    JoinRequestRecordDB req;
+    long pos = 0;
+    int found = 0;
+    while (fread(&req, sizeof(JoinRequestRecordDB), 1, fp) == 1) {
+        pos = ftell(fp) - (long)sizeof(JoinRequestRecordDB);
+        if (req.request_id == request_id) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        fclose(fp);
+        pthread_mutex_unlock(&join_req_mutex);
+        return -2;
+    }
+
+    GroupRecordDB group;
+    if (get_group_info(req.group_id, &group) != 0 || !group.is_active || strcmp(group.owner, owner) != 0) {
+        fclose(fp);
+        pthread_mutex_unlock(&join_req_mutex);
+        return -1; // Không phải owner
+    }
+
+    if (req.status != REQUEST_STATUS_PENDING) {
+        fclose(fp);
+        pthread_mutex_unlock(&join_req_mutex);
+        return -3; // Không còn pending
+    }
+
+    if (approve) {
+        int rc = add_member_to_group(req.group_id, req.requester, owner);
+        if (rc != 0) {
+            fclose(fp);
+            pthread_mutex_unlock(&join_req_mutex);
+            return -4;
+        }
+        req.status = REQUEST_STATUS_APPROVED;
+    } else {
+        req.status = REQUEST_STATUS_REJECTED;
+    }
+    strncpy(req.reviewed_by, owner, MAX_USERNAME - 1);
+    req.reviewed_by[MAX_USERNAME - 1] = '\0';
+    req.reviewed_at = time(NULL);
+
+    fseek(fp, pos, SEEK_SET);
+    fwrite(&req, sizeof(JoinRequestRecordDB), 1, fp);
+    fclose(fp);
+    pthread_mutex_unlock(&join_req_mutex);
+
+    if (requester_out) {
+        strncpy(requester_out, req.requester, MAX_USERNAME);
+    }
+    if (group_id_out) {
+        *group_id_out = req.group_id;
+    }
+    return 0;
+}
+
+// Tạo lời mời
+int create_group_invite(uint32_t group_id, const char *owner, const char *invitee) {
+    // Owner check
+    if (!is_group_owner(group_id, owner)) {
+        return -1;
+    }
+    // Không mời nếu đã là member
+    if (is_member_of_group(group_id, invitee)) {
+        return -2;
+    }
+
+    pthread_mutex_lock(&invite_mutex);
+    FILE *fp = fopen(GROUP_INVITE_FILE, "rb+");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&invite_mutex);
+        return -3;
+    }
+
+    GroupInviteRecordDB inv;
+    while (fread(&inv, sizeof(GroupInviteRecordDB), 1, fp) == 1) {
+        if (inv.group_id == group_id &&
+            strcmp(inv.invitee, invitee) == 0 &&
+            inv.status == REQUEST_STATUS_PENDING) {
+            fclose(fp);
+            pthread_mutex_unlock(&invite_mutex);
+            return -4; // Đã có invite pending
+        }
+    }
+    fclose(fp);
+
+    fp = fopen(GROUP_INVITE_FILE, "ab");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&invite_mutex);
+        return -3;
+    }
+
+    GroupInviteRecordDB new_inv;
+    new_inv.invite_id = next_invite_id++;
+    new_inv.group_id = group_id;
+    strncpy(new_inv.owner, owner, MAX_USERNAME - 1);
+    new_inv.owner[MAX_USERNAME - 1] = '\0';
+    strncpy(new_inv.invitee, invitee, MAX_USERNAME - 1);
+    new_inv.invitee[MAX_USERNAME - 1] = '\0';
+    new_inv.status = REQUEST_STATUS_PENDING;
+    new_inv.invited_at = time(NULL);
+    new_inv.reviewed_by[0] = '\0';
+    new_inv.reviewed_at = 0;
+
+    int rc = (fwrite(&new_inv, sizeof(GroupInviteRecordDB), 1, fp) == 1) ? 0 : -3;
+    fclose(fp);
+    pthread_mutex_unlock(&invite_mutex);
+    if (rc == 0) {
+        return (int)new_inv.invite_id;
+    }
+    return rc;
+}
+
+// Liệt kê lời mời cho user
+int list_invites_for_user(const char *username, GroupInviteRecordDB **invites, int *count) {
+    *invites = NULL;
+    *count = 0;
+
+    pthread_mutex_lock(&invite_mutex);
+    FILE *fp = fopen(GROUP_INVITE_FILE, "rb");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&invite_mutex);
+        return -1;
+    }
+
+    GroupInviteRecordDB inv;
+    int tmp = 0;
+    while (fread(&inv, sizeof(GroupInviteRecordDB), 1, fp) == 1) {
+        if (inv.status == REQUEST_STATUS_PENDING &&
+            strcmp(inv.invitee, username) == 0) {
+            tmp++;
+        }
+    }
+
+    if (tmp == 0) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        *count = 0;
+        return 0;
+    }
+
+    *invites = malloc(sizeof(GroupInviteRecordDB) * tmp);
+    if (*invites == NULL) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        return -2;
+    }
+
+    rewind(fp);
+    int idx = 0;
+    while (fread(&inv, sizeof(GroupInviteRecordDB), 1, fp) == 1 && idx < tmp) {
+        if (inv.status == REQUEST_STATUS_PENDING &&
+            strcmp(inv.invitee, username) == 0) {
+            (*invites)[idx++] = inv;
+        }
+    }
+    fclose(fp);
+    pthread_mutex_unlock(&invite_mutex);
+    *count = idx;
+    return 0;
+}
+
+// Accept/decline invitation
+int decide_invitation(uint32_t invite_id, const char *username, int accept, uint32_t *group_id_out, char *owner_out) {
+    pthread_mutex_lock(&invite_mutex);
+    FILE *fp = fopen(GROUP_INVITE_FILE, "rb+");
+    if (fp == NULL) {
+        pthread_mutex_unlock(&invite_mutex);
+        return -1;
+    }
+
+    GroupInviteRecordDB inv;
+    long pos = 0;
+    int found = 0;
+    while (fread(&inv, sizeof(GroupInviteRecordDB), 1, fp) == 1) {
+        pos = ftell(fp) - (long)sizeof(GroupInviteRecordDB);
+        if (inv.invite_id == invite_id) {
+            found = 1;
+            break;
+        }
+    }
+
+    if (!found) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        return -2;
+    }
+
+    if (strcmp(inv.invitee, username) != 0) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        return -1;
+    }
+    if (inv.status != REQUEST_STATUS_PENDING) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        return -3;
+    }
+
+    GroupRecordDB group;
+    if (get_group_info(inv.group_id, &group) != 0 || !group.is_active) {
+        fclose(fp);
+        pthread_mutex_unlock(&invite_mutex);
+        return -4;
+    }
+
+    if (accept) {
+        int rc = add_member_to_group(inv.group_id, inv.invitee, group.owner);
+        if (rc != 0) {
+            fclose(fp);
+            pthread_mutex_unlock(&invite_mutex);
+            return -5;
+        }
+        inv.status = REQUEST_STATUS_APPROVED;
+    } else {
+        inv.status = REQUEST_STATUS_REJECTED;
+    }
+    strncpy(inv.reviewed_by, username, MAX_USERNAME - 1);
+    inv.reviewed_by[MAX_USERNAME - 1] = '\0';
+    inv.reviewed_at = time(NULL);
+
+    fseek(fp, pos, SEEK_SET);
+    fwrite(&inv, sizeof(GroupInviteRecordDB), 1, fp);
+    fclose(fp);
+    pthread_mutex_unlock(&invite_mutex);
+
+    if (group_id_out) {
+        *group_id_out = inv.group_id;
+    }
+    if (owner_out) {
+        strncpy(owner_out, inv.owner, MAX_USERNAME);
+    }
+    return 0;
+}
+
+// Thành viên tự rời nhóm. Owner chỉ rời khi nhóm không còn ai (hoặc đã chuyển owner)
+int leave_group(uint32_t group_id, const char *username) {
+    if (!is_member_of_group(group_id, username)) {
+        return -3;
+    }
+
+    if (is_group_owner(group_id, username)) {
+        GroupRecordDB group;
+        if (get_group_info(group_id, &group) != 0) {
+            return -4;
+        }
+        if (group.member_count > 1) {
+            return -2; // Chủ nhóm phải chuyển owner trước
+        }
+        return delete_group(group_id, username);
+    }
+
+    FILE *fp = fopen(MEMBER_DB_FILE, "rb+");
+    if (fp == NULL) {
+        return -3;
+    }
+
+    MemberRecordDB member;
+    long pos = 0;
+    int found = 0;
+    while (fread(&member, sizeof(MemberRecordDB), 1, fp) == 1) {
+        pos = ftell(fp) - (long)sizeof(MemberRecordDB);
+        if (member.group_id == group_id &&
+            strcmp(member.username, username) == 0 &&
+            member.is_active) {
+            member.is_active = 0;
+            fseek(fp, pos, SEEK_SET);
+            fwrite(&member, sizeof(MemberRecordDB), 1, fp);
+            found = 1;
+            break;
+        }
+    }
+    fclose(fp);
+
+    if (!found) {
+        return -3;
+    }
+
+    // Cập nhật member_count
+    fp = fopen(GROUP_DB_FILE, "rb+");
+    if (fp != NULL) {
+        GroupRecordDB group;
+        pos = 0;
+        while (fread(&group, sizeof(GroupRecordDB), 1, fp) == 1) {
+            pos = ftell(fp) - (long)sizeof(GroupRecordDB);
+            if (group.group_id == group_id && group.is_active) {
+                if (group.member_count > 0) {
+                    group.member_count--;
+                }
+                fseek(fp, pos, SEEK_SET);
+                fwrite(&group, sizeof(GroupRecordDB), 1, fp);
+                break;
+            }
+        }
+        fclose(fp);
+    }
+
+    printf("Member %s left group %u\n", username, group_id);
+    return 0;
+}
+
+// Chuyển chủ sở hữu nhóm
+int transfer_group_owner(uint32_t group_id, const char *owner, const char *new_owner) {
+    if (!is_group_owner(group_id, owner)) {
+        return -1;
+    }
+    if (!is_member_of_group(group_id, new_owner)) {
+        return -3;
+    }
+
+    FILE *fp = fopen(GROUP_DB_FILE, "rb+");
+    if (fp == NULL) {
+        return -2;
+    }
+
+    GroupRecordDB group;
+    long pos = 0;
+    int found = 0;
+    while (fread(&group, sizeof(GroupRecordDB), 1, fp) == 1) {
+        pos = ftell(fp) - (long)sizeof(GroupRecordDB);
+        if (group.group_id == group_id && group.is_active) {
+            found = 1;
+            strncpy(group.owner, new_owner, MAX_USERNAME - 1);
+            group.owner[MAX_USERNAME - 1] = '\0';
+            fseek(fp, pos, SEEK_SET);
+            fwrite(&group, sizeof(GroupRecordDB), 1, fp);
+            break;
+        }
+    }
+    fclose(fp);
+
+    if (!found) {
+        return -2;
+    }
+
+    // Cập nhật role trong member list
+    fp = fopen(MEMBER_DB_FILE, "rb+");
+    if (fp == NULL) {
+        return -2;
+    }
+    MemberRecordDB member;
+    while (fread(&member, sizeof(MemberRecordDB), 1, fp) == 1) {
+        long rec_pos = ftell(fp) - (long)sizeof(MemberRecordDB);
+        if (member.group_id == group_id && member.is_active) {
+            if (strcmp(member.username, owner) == 0) {
+                member.is_admin = 0;
+                fseek(fp, rec_pos, SEEK_SET);
+                fwrite(&member, sizeof(MemberRecordDB), 1, fp);
+            } else if (strcmp(member.username, new_owner) == 0) {
+                member.is_admin = 1;
+                fseek(fp, rec_pos, SEEK_SET);
+                fwrite(&member, sizeof(MemberRecordDB), 1, fp);
+            }
+        }
+    }
+    fclose(fp);
+
+    printf("Group %u ownership transferred from %s to %s\n", group_id, owner, new_owner);
     return 0;
 }

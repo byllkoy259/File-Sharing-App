@@ -310,6 +310,287 @@ void handle_list_members(int client_index, void *data) {
     printf("Sent %d members to %s for group %u\n", count, clients[client_index].username, group_id);
 }
 
+// Xử lý yêu cầu join nhóm
+void handle_request_join(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    uint32_t group_id = *((uint32_t *)data);
+    if (is_member_of_group(group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_ERROR, "You are already a member");
+        return;
+    }
+    if (is_group_owner(group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_ERROR, "Owner does not need to request join");
+        return;
+    }
+
+    int req_id = create_join_request(group_id, clients[client_index].username);
+    if (req_id > 0) {
+        send_response(client_index, RESP_SUCCESS, "Join request submitted");
+    } else if (req_id == -2) {
+        send_response(client_index, RESP_ERROR, "A pending request already exists");
+    } else if (req_id == -3) {
+        send_response(client_index, RESP_NOT_FOUND, "Group does not exist");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to submit join request");
+    }
+}
+
+// Owner liệt kê các join requests pending
+void handle_list_join_requests(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    uint32_t group_id = data ? *((uint32_t *)data) : 0; // 0 = tất cả
+    JoinRequestRecordDB *requests = NULL;
+    int count = 0;
+    int rc = list_join_requests_for_owner(clients[client_index].username, &requests, &count, group_id);
+    if (rc < 0) {
+        send_response(client_index, RESP_ERROR, "Failed to list join requests");
+        if (requests) free(requests);
+        return;
+    }
+    if (count == 0) {
+        send_response(client_index, RESP_SUCCESS, "No pending join requests");
+        if (requests) free(requests);
+        return;
+    }
+
+    JoinRequestInfo *payload_reqs = malloc(sizeof(JoinRequestInfo) * count);
+    if (!payload_reqs) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(requests);
+        return;
+    }
+    for (int i = 0; i < count; i++) {
+        payload_reqs[i].request_id = requests[i].request_id;
+        payload_reqs[i].group_id = requests[i].group_id;
+        strncpy(payload_reqs[i].username, requests[i].requester, MAX_USERNAME);
+        payload_reqs[i].status = requests[i].status;
+        payload_reqs[i].created_at = (uint64_t)requests[i].requested_at;
+        payload_reqs[i].reviewed_at = (uint64_t)requests[i].reviewed_at;
+    }
+
+    size_t resp_size = sizeof(Response);
+    size_t data_size = sizeof(JoinRequestInfo) * count;
+    size_t total = resp_size + data_size;
+    char *payload = malloc(total);
+    if (!payload) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(requests);
+        free(payload_reqs);
+        return;
+    }
+
+    Response resp;
+    resp.status = RESP_SUCCESS;
+    snprintf(resp.message, sizeof(resp.message), "Pending join requests");
+    memcpy(payload, &resp, resp_size);
+    memcpy(payload + resp_size, payload_reqs, data_size);
+
+    MessageHeader header;
+    header.command = RESP_SUCCESS;
+    header.data_length = total;
+    header.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &header, payload);
+
+    free(payload);
+    free(payload_reqs);
+    free(requests);
+}
+
+// Owner approve/reject join request
+void handle_decide_join_request(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    DecisionPayload *payload = (DecisionPayload *)data;
+    char requester[MAX_USERNAME];
+    uint32_t group_id = 0;
+    int rc = decide_join_request(payload->id, clients[client_index].username, payload->approve, requester, &group_id);
+    if (rc == 0) {
+        send_response(client_index, RESP_SUCCESS, payload->approve ? "Join request approved" : "Join request rejected");
+    } else if (rc == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can decide");
+    } else if (rc == -2) {
+        send_response(client_index, RESP_NOT_FOUND, "Request not found");
+    } else if (rc == -3) {
+        send_response(client_index, RESP_ERROR, "Request already processed");
+    } else if (rc == -4) {
+        send_response(client_index, RESP_ERROR, "Failed to add member");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to process request");
+    }
+}
+
+// Owner mời user vào nhóm
+void handle_invite_user(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    GroupUserPayload *payload = (GroupUserPayload *)data;
+    if (!user_exists(payload->username)) {
+        send_response(client_index, RESP_NOT_FOUND, "Invitee does not exist");
+        return;
+    }
+    if (strcmp(payload->username, clients[client_index].username) == 0) {
+        send_response(client_index, RESP_ERROR, "Owner already in group");
+        return;
+    }
+
+    int rc = create_group_invite(payload->group_id, clients[client_index].username, payload->username);
+    if (rc > 0) {
+        send_response(client_index, RESP_SUCCESS, "Invitation sent");
+    } else if (rc == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can invite");
+    } else if (rc == -2) {
+        send_response(client_index, RESP_ERROR, "User already a member");
+    } else if (rc == -4) {
+        send_response(client_index, RESP_ERROR, "An invitation is already pending");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to send invitation");
+    }
+}
+
+// User xem danh sách invite đang chờ
+void handle_list_invites(int client_index) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    GroupInviteRecordDB *invites = NULL;
+    int count = 0;
+    int rc = list_invites_for_user(clients[client_index].username, &invites, &count);
+    if (rc < 0) {
+        send_response(client_index, RESP_ERROR, "Failed to list invitations");
+        if (invites) free(invites);
+        return;
+    }
+    if (count == 0) {
+        send_response(client_index, RESP_SUCCESS, "No pending invitations");
+        if (invites) free(invites);
+        return;
+    }
+
+    GroupInviteInfo *payload_inv = malloc(sizeof(GroupInviteInfo) * count);
+    if (!payload_inv) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(invites);
+        return;
+    }
+
+    for (int i = 0; i < count; i++) {
+        payload_inv[i].invite_id = invites[i].invite_id;
+        payload_inv[i].group_id = invites[i].group_id;
+        strncpy(payload_inv[i].owner, invites[i].owner, MAX_USERNAME);
+        strncpy(payload_inv[i].invitee, invites[i].invitee, MAX_USERNAME);
+        payload_inv[i].status = invites[i].status;
+        payload_inv[i].created_at = (uint64_t)invites[i].invited_at;
+        payload_inv[i].reviewed_at = (uint64_t)invites[i].reviewed_at;
+    }
+
+    size_t resp_size = sizeof(Response);
+    size_t data_size = sizeof(GroupInviteInfo) * count;
+    size_t total = resp_size + data_size;
+    char *payload = malloc(total);
+    if (!payload) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(invites);
+        free(payload_inv);
+        return;
+    }
+
+    Response resp;
+    resp.status = RESP_SUCCESS;
+    snprintf(resp.message, sizeof(resp.message), "Pending invitations");
+    memcpy(payload, &resp, resp_size);
+    memcpy(payload + resp_size, payload_inv, data_size);
+
+    MessageHeader header;
+    header.command = RESP_SUCCESS;
+    header.data_length = total;
+    header.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &header, payload);
+
+    free(payload);
+    free(payload_inv);
+    free(invites);
+}
+
+// User accept/decline invite
+void handle_decide_invitation(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+
+    DecisionPayload *payload = (DecisionPayload *)data;
+    int rc = decide_invitation(payload->id, clients[client_index].username, payload->approve, NULL, NULL);
+    if (rc == 0) {
+        send_response(client_index, RESP_SUCCESS, payload->approve ? "Invitation accepted" : "Invitation declined");
+    } else if (rc == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Not allowed to decide this invitation");
+    } else if (rc == -2) {
+        send_response(client_index, RESP_NOT_FOUND, "Invitation not found");
+    } else if (rc == -3) {
+        send_response(client_index, RESP_ERROR, "Invitation already processed");
+    } else if (rc == -4) {
+        send_response(client_index, RESP_ERROR, "Group not available");
+    } else if (rc == -5) {
+        send_response(client_index, RESP_ERROR, "Failed to add member");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to process invitation");
+    }
+}
+
+// Thành viên rời nhóm
+void handle_leave_group(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+    uint32_t group_id = *((uint32_t *)data);
+    int rc = leave_group(group_id, clients[client_index].username);
+    if (rc == 0) {
+        send_response(client_index, RESP_SUCCESS, "Left group successfully");
+    } else if (rc == -2) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Owner must transfer ownership before leaving");
+    } else if (rc == -3) {
+        send_response(client_index, RESP_NOT_FOUND, "You are not a member of this group");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to leave group");
+    }
+}
+
+// Chuyển chủ nhóm
+void handle_transfer_owner(int client_index, void *data) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return;
+    }
+    TransferOwnerPayload *payload = (TransferOwnerPayload *)data;
+    int rc = transfer_group_owner(payload->group_id, clients[client_index].username, payload->new_owner);
+    if (rc == 0) {
+        send_response(client_index, RESP_SUCCESS, "Ownership transferred");
+    } else if (rc == -1) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only owner can transfer ownership");
+    } else if (rc == -3) {
+        send_response(client_index, RESP_NOT_FOUND, "New owner must be an active member");
+    } else {
+        send_response(client_index, RESP_ERROR, "Failed to transfer ownership");
+    }
+}
+
 // Thread xử lý client
 void *client_handler(void *arg) {
     int client_index = *((int *)arg);
@@ -358,6 +639,38 @@ void *client_handler(void *arg) {
 
             case CMD_REMOVE_MEMBER:
                 handle_remove_member(client_index, data);
+                break;
+
+            case CMD_REQUEST_JOIN_GROUP:
+                handle_request_join(client_index, data);
+                break;
+
+            case CMD_LIST_JOIN_REQUESTS:
+                handle_list_join_requests(client_index, data);
+                break;
+
+            case CMD_DECIDE_JOIN_REQUEST:
+                handle_decide_join_request(client_index, data);
+                break;
+
+            case CMD_INVITE_TO_GROUP:
+                handle_invite_user(client_index, data);
+                break;
+
+            case CMD_LIST_INVITATIONS:
+                handle_list_invites(client_index);
+                break;
+
+            case CMD_DECIDE_INVITATION:
+                handle_decide_invitation(client_index, data);
+                break;
+
+            case CMD_LEAVE_GROUP:
+                handle_leave_group(client_index, data);
+                break;
+
+            case CMD_TRANSFER_GROUP_OWNER:
+                handle_transfer_owner(client_index, data);
                 break;
                 
             case CMD_LIST_GROUPS:

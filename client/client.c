@@ -374,6 +374,278 @@ void do_list_members() {
     free(data);
 }
 
+// Gửi yêu cầu tham gia nhóm
+void do_request_join_group() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    uint32_t group_id;
+    printf("\n=== REQUEST TO JOIN GROUP ===\n");
+    printf("Group ID: ");
+    scanf("%u", &group_id);
+
+    MessageHeader header;
+    header.command = CMD_REQUEST_JOIN_GROUP;
+    header.data_length = sizeof(uint32_t);
+    header.session_id = session_id;
+
+    if (send_message(sockfd, &header, &group_id) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
+// Owner liệt kê các join request đang chờ
+void do_list_join_requests() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    uint32_t group_id;
+    printf("\n=== LIST PENDING JOIN REQUESTS ===\n");
+    printf("Group ID (0 = all owned groups): ");
+    scanf("%u", &group_id);
+
+    MessageHeader header;
+    header.command = CMD_LIST_JOIN_REQUESTS;
+    header.data_length = sizeof(uint32_t);
+    header.session_id = session_id;
+
+    if (send_message(sockfd, &header, &group_id) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+
+    if (header.command == RESP_SUCCESS && header.data_length > sizeof(Response)) {
+        Response *resp = (Response *)data;
+        int count = (header.data_length - sizeof(Response)) / sizeof(JoinRequestInfo);
+        JoinRequestInfo *reqs = (JoinRequestInfo *)((char *)data + sizeof(Response));
+        printf("\n%s\n", resp->message);
+        printf("%-6s %-6s %-20s %-12s\n", "ID", "Group", "User", "Status");
+        printf("---------------------------------------------\n");
+        for (int i = 0; i < count; i++) {
+            const char *status = (reqs[i].status == REQUEST_STATUS_PENDING) ? "PENDING" :
+                                 (reqs[i].status == REQUEST_STATUS_APPROVED) ? "APPROVED" : "REJECTED";
+            printf("%-6u %-6u %-20s %-12s\n", reqs[i].request_id, reqs[i].group_id, reqs[i].username, status);
+        }
+    } else {
+        Response *resp = (Response *)data;
+        printf("%s\n", resp->message);
+    }
+    free(data);
+}
+
+// Owner approve/reject join request
+void do_decide_join_request() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    DecisionPayload payload;
+    printf("\n=== DECIDE JOIN REQUEST ===\n");
+    printf("Request ID: ");
+    scanf("%u", &payload.id);
+    printf("Approve? (1 = yes, 0 = reject): ");
+    scanf("%u", &payload.approve);
+
+    MessageHeader header;
+    header.command = CMD_DECIDE_JOIN_REQUEST;
+    header.data_length = sizeof(DecisionPayload);
+    header.session_id = session_id;
+    if (send_message(sockfd, &header, &payload) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
+// Owner mời thành viên
+void do_invite_user() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    GroupUserPayload payload;
+    printf("\n=== INVITE USER TO GROUP ===\n");
+    printf("Group ID: ");
+    scanf("%u", &payload.group_id);
+    printf("Username to invite: ");
+    scanf("%s", payload.username);
+
+    MessageHeader header;
+    header.command = CMD_INVITE_TO_GROUP;
+    header.data_length = sizeof(GroupUserPayload);
+    header.session_id = session_id;
+
+    if (send_message(sockfd, &header, &payload) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
+// User xem lời mời
+void do_list_invitations() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+
+    MessageHeader header;
+    header.command = CMD_LIST_INVITATIONS;
+    header.data_length = 0;
+    header.session_id = session_id;
+    if (send_message(sockfd, &header, NULL) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+
+    if (header.command == RESP_SUCCESS && header.data_length > sizeof(Response)) {
+        Response *resp = (Response *)data;
+        int count = (header.data_length - sizeof(Response)) / sizeof(GroupInviteInfo);
+        GroupInviteInfo *invites = (GroupInviteInfo *)((char *)data + sizeof(Response));
+        printf("\n%s\n", resp->message);
+        printf("%-6s %-6s %-20s %-10s\n", "ID", "Group", "Owner", "Status");
+        printf("-------------------------------------------\n");
+        for (int i = 0; i < count; i++) {
+            const char *status = (invites[i].status == REQUEST_STATUS_PENDING) ? "PENDING" :
+                                 (invites[i].status == REQUEST_STATUS_APPROVED) ? "ACCEPTED" : "DECLINED";
+            printf("%-6u %-6u %-20s %-10s\n", invites[i].invite_id, invites[i].group_id, invites[i].owner, status);
+        }
+    } else {
+        Response *resp = (Response *)data;
+        printf("%s\n", resp->message);
+    }
+    free(data);
+}
+
+// User accept/decline invitation
+void do_decide_invitation() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    DecisionPayload payload;
+    printf("\n=== RESPOND TO INVITATION ===\n");
+    printf("Invitation ID: ");
+    scanf("%u", &payload.id);
+    printf("Accept? (1 = yes, 0 = decline): ");
+    scanf("%u", &payload.approve);
+
+    MessageHeader header;
+    header.command = CMD_DECIDE_INVITATION;
+    header.data_length = sizeof(DecisionPayload);
+    header.session_id = session_id;
+
+    if (send_message(sockfd, &header, &payload) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
+// Thành viên rời nhóm
+void do_leave_group() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    uint32_t group_id;
+    printf("\n=== LEAVE GROUP ===\n");
+    printf("Group ID: ");
+    scanf("%u", &group_id);
+
+    MessageHeader header;
+    header.command = CMD_LEAVE_GROUP;
+    header.data_length = sizeof(uint32_t);
+    header.session_id = session_id;
+    if (send_message(sockfd, &header, &group_id) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
+// Chuyển chủ sở hữu nhóm
+void do_transfer_owner() {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    TransferOwnerPayload payload;
+    printf("\n=== TRANSFER GROUP OWNERSHIP ===\n");
+    printf("Group ID: ");
+    scanf("%u", &payload.group_id);
+    printf("New owner username: ");
+    scanf("%s", payload.new_owner);
+
+    MessageHeader header;
+    header.command = CMD_TRANSFER_GROUP_OWNER;
+    header.data_length = sizeof(TransferOwnerPayload);
+    header.session_id = session_id;
+    if (send_message(sockfd, &header, &payload) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
 // Menu khi chưa đăng nhập
 void show_auth_menu() {
     printf("\n========== FILE SHARING APP ==========\n");
@@ -395,12 +667,16 @@ void show_main_menu() {
     printf("3. Add Member to Group\n");
     printf("4. Remove Member from Group\n");
     printf("5. List Group Members\n");
+    printf("6. Request to Join Group\n");
+    printf("7. List Pending Join Requests (owner)\n");
+    printf("8. Decide Join Request (owner)\n");
+    printf("9. Invite User to Group (owner)\n");
+    printf("10. List My Invitations\n");
+    printf("11. Respond to Invitation\n");
+    printf("12. Leave Group\n");
+    printf("13. Transfer Group Ownership\n");
     printf("--------------------------------------\n");
-    printf("6. Upload File (Coming soon)\n");
-    printf("7. Download File (Coming soon)\n");
-    printf("8. List Files (Coming soon)\n");
-    printf("--------------------------------------\n");
-    printf("9. Logout\n");
+    printf("14. Logout\n");
     printf("0. Exit\n");
     printf("======================================\n");
     printf("Choose option: ");
@@ -437,12 +713,15 @@ int main() {
                 case 3: do_add_member(); break;
                 case 4: do_remove_member(); break;
                 case 5: do_list_members(); break;
-                case 6:
-                case 7:
-                case 8:
-                    printf("Coming soon!\n");
-                    break;
-                case 9: // Logout
+                case 6: do_request_join_group(); break;
+                case 7: do_list_join_requests(); break;
+                case 8: do_decide_join_request(); break;
+                case 9: do_invite_user(); break;
+                case 10: do_list_invitations(); break;
+                case 11: do_decide_invitation(); break;
+                case 12: do_leave_group(); break;
+                case 13: do_transfer_owner(); break;
+                case 14: // Logout
                     MessageHeader header;
                     header.command = CMD_LOGOUT;
                     header.data_length = 0;
