@@ -1,6 +1,9 @@
 #include "../common/protocol.h"
 #include "user_db.h"
 #include "group_db.h"
+#include "logger.h"
+#include "file_service.h"
+#include "fs_utils.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -10,6 +13,8 @@
 #include <sys/socket.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <errno.h>
+#include <sys/stat.h>
 
 #define PORT 8888
 #define MAX_CLIENTS 100
@@ -79,7 +84,7 @@ void send_response(int client_index, uint32_t status, const char *message) {
 
 // Xử lý đăng ký
 void handle_register(int client_index, AuthRequest *auth) {
-    printf("Register request: %s\n", auth->username);
+    LOG_INFO("Register request: %s", auth->username);
     
     int result = register_user(auth->username, auth->password);
     
@@ -94,7 +99,7 @@ void handle_register(int client_index, AuthRequest *auth) {
 
 // Xử lý đăng nhập
 void handle_login(int client_index, AuthRequest *auth) {
-    printf("Login request: %s\n", auth->username);
+    LOG_INFO("Login request: %s", auth->username);
     
     if (authenticate_user(auth->username, auth->password)) {
         pthread_mutex_lock(&clients_mutex);
@@ -103,7 +108,7 @@ void handle_login(int client_index, AuthRequest *auth) {
         pthread_mutex_unlock(&clients_mutex);
         
         send_response(client_index, RESP_SUCCESS, "Login successful");
-        printf("User logged in: %s\n", auth->username);
+        LOG_INFO("User logged in: %s", auth->username);
     } else {
         send_response(client_index, RESP_ERROR, "Invalid username or password");
     }
@@ -117,7 +122,7 @@ void handle_create_group(int client_index, void *data) {
     }
     
     char *group_name = (char *)data;
-    printf("Create group request: %s by %s\n", group_name, clients[client_index].username);
+    LOG_INFO("Create group request: %s by %s", group_name, clients[client_index].username);
     
     int group_id = create_group(group_name, clients[client_index].username);
     
@@ -245,7 +250,7 @@ void handle_list_groups(int client_index) {
     free(payload);
     free(groups_to_send);
     free(groups_db);
-    printf("Sent %d groups to %s\n", count, clients[client_index].username);
+    LOG_INFO("Sent %d groups to %s", count, clients[client_index].username);
 }
 
 // Xử lý liệt kê thành viên nhóm
@@ -307,7 +312,7 @@ void handle_list_members(int client_index, void *data) {
     free(payload);
     free(members_to_send);
     free(members_db);
-    printf("Sent %d members to %s for group %u\n", count, clients[client_index].username, group_id);
+    LOG_INFO("Sent %d members to %s for group %u", count, clients[client_index].username, group_id);
 }
 
 // Xử lý yêu cầu join nhóm
@@ -591,13 +596,377 @@ void handle_transfer_owner(int client_index, void *data) {
     }
 }
 
+// ==============================
+// File / Directory operations
+// ==============================
+
+static void send_response_payload(int client_index, uint32_t status, const char *message,
+                                  const void *extra, uint32_t extra_len) {
+    Response resp;
+    resp.status = status;
+    strncpy(resp.message, message ? message : "", sizeof(resp.message) - 1);
+    resp.message[sizeof(resp.message) - 1] = '\0';
+
+    uint32_t total_len = sizeof(Response) + extra_len;
+    char *payload = NULL;
+    if (total_len > 0) {
+        payload = (char *)malloc(total_len);
+        if (!payload) {
+            send_response(client_index, RESP_ERROR, "Server memory error");
+            return;
+        }
+        memcpy(payload, &resp, sizeof(Response));
+        if (extra && extra_len > 0) {
+            memcpy(payload + sizeof(Response), extra, extra_len);
+        }
+    }
+
+    MessageHeader header;
+    header.command = status;
+    header.data_length = total_len;
+    header.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &header, payload);
+    if (payload) free(payload);
+}
+
+static int require_logged_in(int client_index) {
+    if (!clients[client_index].is_logged_in) {
+        send_response(client_index, RESP_AUTH_REQUIRED, "Please login first");
+        return 0;
+    }
+    return 1;
+}
+
+void handle_list_files(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+
+    PathRequest *req = (PathRequest *)data;
+    if (!is_member_of_group(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+
+    DirEntry *entries = NULL;
+    uint32_t count = 0;
+    if (file_list(req->group_id, req->path, &entries, &count) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to list directory: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        if (entries) free(entries);
+        return;
+    }
+
+    ListResultHeader lh;
+    lh.count = count;
+    uint32_t extra_len = sizeof(ListResultHeader) + (uint32_t)(sizeof(DirEntry) * count);
+    char *extra = (char *)malloc(extra_len);
+    if (!extra) {
+        send_response(client_index, RESP_ERROR, "Server memory error");
+        free(entries);
+        return;
+    }
+    memcpy(extra, &lh, sizeof(ListResultHeader));
+    if (count > 0) {
+        memcpy(extra + sizeof(ListResultHeader), entries, sizeof(DirEntry) * count);
+    }
+
+    send_response_payload(client_index, RESP_SUCCESS, "Directory listing", extra, extra_len);
+    LOG_INFO("List files: user=%s group=%u path='%s' count=%u",
+             clients[client_index].username, req->group_id, req->path, count);
+
+    free(extra);
+    free(entries);
+}
+
+void handle_mkdir(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+    PathRequest *req = (PathRequest *)data;
+    if (!is_member_of_group(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+    if (dir_mkdir(req->group_id, req->path) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to create directory: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    LOG_INFO("mkdir: user=%s group=%u path='%s'", clients[client_index].username, req->group_id, req->path);
+    send_response(client_index, RESP_SUCCESS, "Directory created");
+}
+
+void handle_rmdir(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+    PathRequest *req = (PathRequest *)data;
+    if (!is_group_owner(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can remove directories");
+        return;
+    }
+    if (dir_rmdir(req->group_id, req->path) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to remove directory: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    LOG_INFO("rmdir: owner=%s group=%u path='%s'", clients[client_index].username, req->group_id, req->path);
+    send_response(client_index, RESP_SUCCESS, "Directory removed");
+}
+
+void handle_delete_file(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+    PathRequest *req = (PathRequest *)data;
+    if (!is_group_owner(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can delete files");
+        return;
+    }
+    if (file_delete(req->group_id, req->path) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to delete file: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    LOG_INFO("delete file: owner=%s group=%u path='%s'", clients[client_index].username, req->group_id, req->path);
+    send_response(client_index, RESP_SUCCESS, "File deleted");
+}
+
+void handle_move_path(int client_index, void *data, int is_dir) {
+    if (!require_logged_in(client_index)) return;
+    MoveRequest *req = (MoveRequest *)data;
+    if (!is_group_owner(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "Only group owner can rename/move");
+        return;
+    }
+    if (path_move(req->group_id, req->src, req->dst) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to %s: %s", is_dir ? "move directory" : "move file", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    LOG_INFO("move: owner=%s group=%u src='%s' dst='%s'", clients[client_index].username, req->group_id, req->src, req->dst);
+    send_response(client_index, RESP_SUCCESS, "Move/rename OK");
+}
+
+void handle_upload_file(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+
+    UploadInitPayload *init = (UploadInitPayload *)data;
+    if (!is_member_of_group(init->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+
+    char abs_path[1024];
+    if (resolve_group_path(init->group_id, init->remote_path, abs_path, sizeof(abs_path)) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Invalid path: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    // tạo thư mục cha
+    if (ensure_parent_dir(abs_path, 0700) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to create parent directory: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+
+    FILE *fp = fopen(abs_path, "wb");
+    if (!fp) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to open file for writing: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+
+    LOG_INFO("upload start: user=%s group=%u path='%s' size=%llu",
+             clients[client_index].username, init->group_id, init->remote_path,
+             (unsigned long long)init->file_size);
+
+    send_response(client_index, RESP_SUCCESS, "Ready to receive file");
+
+    uint64_t received_total = 0;
+    int ok = 1;
+
+    while (1) {
+        MessageHeader h;
+        void *chunk_data = NULL;
+        int r = recv_message(clients[client_index].sockfd, &h, &chunk_data);
+        if (r == -2) {
+            ok = 0;
+            LOG_WARN("upload aborted (client disconnected): user=%s", clients[client_index].username);
+            break;
+        }
+        if (r != 0) {
+            ok = 0;
+            LOG_ERROR("upload aborted (recv error): user=%s", clients[client_index].username);
+            break;
+        }
+        if (h.command != CMD_UPLOAD_FILE || h.data_length < sizeof(FileChunkHeader)) {
+            ok = 0;
+            LOG_WARN("upload protocol error: unexpected command=%u", h.command);
+            if (chunk_data) free(chunk_data);
+            break;
+        }
+
+        FileChunkHeader *ch = (FileChunkHeader *)chunk_data;
+        uint32_t payload_bytes = h.data_length - (uint32_t)sizeof(FileChunkHeader);
+        uint8_t *bytes = (uint8_t *)chunk_data + sizeof(FileChunkHeader);
+
+        if (ch->phase == FILE_PHASE_CHUNK) {
+            if (ch->chunk_size != payload_bytes) {
+                ok = 0;
+                LOG_WARN("upload chunk size mismatch: declared=%u actual=%u", ch->chunk_size, payload_bytes);
+                free(chunk_data);
+                break;
+            }
+            if (ch->offset != received_total) {
+                ok = 0;
+                LOG_WARN("upload offset mismatch: expected=%llu got=%llu",
+                         (unsigned long long)received_total, (unsigned long long)ch->offset);
+                free(chunk_data);
+                break;
+            }
+            if (received_total + ch->chunk_size > init->file_size) {
+                ok = 0;
+                LOG_WARN("upload exceeds declared size");
+                free(chunk_data);
+                break;
+            }
+            size_t wn = fwrite(bytes, 1, ch->chunk_size, fp);
+            if (wn != ch->chunk_size) {
+                ok = 0;
+                LOG_ERROR("upload write failed: %s", strerror(errno));
+                free(chunk_data);
+                break;
+            }
+            received_total += ch->chunk_size;
+        } else if (ch->phase == FILE_PHASE_END) {
+            free(chunk_data);
+            break;
+        } else {
+            ok = 0;
+            LOG_WARN("upload invalid phase=%u", ch->phase);
+            free(chunk_data);
+            break;
+        }
+
+        free(chunk_data);
+    }
+
+    fclose(fp);
+    if (!ok || received_total != init->file_size) {
+        // xóa file lỗi / dở dang
+        unlink(abs_path);
+        send_response(client_index, RESP_ERROR, "Upload failed");
+        LOG_ERROR("upload failed: user=%s group=%u path='%s' received=%llu/%llu",
+                  clients[client_index].username, init->group_id, init->remote_path,
+                  (unsigned long long)received_total, (unsigned long long)init->file_size);
+        return;
+    }
+
+    char msg[256];
+    snprintf(msg, sizeof(msg), "Upload complete (%llu bytes)", (unsigned long long)received_total);
+    send_response(client_index, RESP_SUCCESS, msg);
+    LOG_INFO("upload complete: user=%s group=%u path='%s' bytes=%llu",
+             clients[client_index].username, init->group_id, init->remote_path,
+             (unsigned long long)received_total);
+}
+
+void handle_download_file(int client_index, void *data) {
+    if (!require_logged_in(client_index)) return;
+    DownloadRequestPayload *req = (DownloadRequestPayload *)data;
+
+    if (!is_member_of_group(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+
+    char abs_path[1024];
+    if (resolve_group_path(req->group_id, req->remote_path, abs_path, sizeof(abs_path)) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Invalid path: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+
+    struct stat st;
+    if (stat(abs_path, &st) != 0 || !S_ISREG(st.st_mode)) {
+        send_response(client_index, RESP_NOT_FOUND, "File not found");
+        return;
+    }
+
+    FILE *fp = fopen(abs_path, "rb");
+    if (!fp) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to open file: %s", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+
+    DownloadMetaPayload meta;
+    meta.file_size = (uint64_t)st.st_size;
+    send_response_payload(client_index, RESP_SUCCESS, "Download starting", &meta, sizeof(meta));
+
+    LOG_INFO("download start: user=%s group=%u path='%s' size=%llu",
+             clients[client_index].username, req->group_id, req->remote_path,
+             (unsigned long long)meta.file_size);
+
+    uint8_t buf[FILE_CHUNK_SIZE];
+    uint64_t offset = 0;
+    size_t n;
+    while ((n = fread(buf, 1, sizeof(buf), fp)) > 0) {
+        uint32_t payload_len = (uint32_t)(sizeof(FileChunkHeader) + n);
+        uint8_t *payload = (uint8_t *)malloc(payload_len);
+        if (!payload) {
+            fclose(fp);
+            LOG_ERROR("download aborted (OOM)");
+            return;
+        }
+        FileChunkHeader ch;
+        ch.phase = FILE_PHASE_CHUNK;
+        ch.chunk_size = (uint32_t)n;
+        ch.offset = offset;
+        memcpy(payload, &ch, sizeof(ch));
+        memcpy(payload + sizeof(ch), buf, n);
+
+        MessageHeader h;
+        h.command = CMD_DOWNLOAD_FILE;
+        h.data_length = payload_len;
+        h.session_id = clients[client_index].session_id;
+        if (send_message(clients[client_index].sockfd, &h, payload) != 0) {
+            free(payload);
+            fclose(fp);
+            LOG_WARN("download aborted (send failed)");
+            return;
+        }
+        free(payload);
+        offset += (uint64_t)n;
+    }
+
+    // END
+    FileChunkHeader end;
+    end.phase = FILE_PHASE_END;
+    end.chunk_size = 0;
+    end.offset = offset;
+    MessageHeader eh;
+    eh.command = CMD_DOWNLOAD_FILE;
+    eh.data_length = sizeof(FileChunkHeader);
+    eh.session_id = clients[client_index].session_id;
+    send_message(clients[client_index].sockfd, &eh, &end);
+
+    fclose(fp);
+    LOG_INFO("download complete: user=%s group=%u path='%s' bytes=%llu",
+             clients[client_index].username, req->group_id, req->remote_path,
+             (unsigned long long)offset);
+}
+
 // Thread xử lý client
 void *client_handler(void *arg) {
     int client_index = *((int *)arg);
     free(arg);
     
-    printf("Client connected [Index: %d, Session: %u]\n", 
-           client_index, clients[client_index].session_id);
+    LOG_INFO("Client connected [Index: %d, Session: %u]", 
+             client_index, clients[client_index].session_id);
     
     while (1) {
         MessageHeader header;
@@ -606,12 +975,12 @@ void *client_handler(void *arg) {
         int result = recv_message(clients[client_index].sockfd, &header, &data);
         
         if (result == -2) {
-            printf("Client disconnected [Index: %d]\n", client_index);
+            LOG_INFO("Client disconnected [Index: %d]", client_index);
             break;
         }
         
         if (result == -1) {
-            printf("Error receiving message from client [Index: %d]\n", client_index);
+            LOG_WARN("Error receiving message from client [Index: %d]", client_index);
             break;
         }
         
@@ -626,7 +995,7 @@ void *client_handler(void *arg) {
                 break;
                 
             case CMD_LOGOUT:
-                printf("Client logout [Index: %d]\n", client_index);
+                LOG_INFO("Client logout [Index: %d]", client_index);
                 goto cleanup;
                 
             case CMD_CREATE_GROUP:
@@ -680,9 +1049,43 @@ void *client_handler(void *arg) {
             case CMD_LIST_GROUP_MEMBERS:
                 handle_list_members(client_index, data);
                 break;
+
+            // File operations
+            case CMD_LIST_FILES:
+                handle_list_files(client_index, data);
+                break;
+            case CMD_UPLOAD_FILE:
+                handle_upload_file(client_index, data);
+                break;
+            case CMD_DOWNLOAD_FILE:
+                handle_download_file(client_index, data);
+                break;
+            case CMD_DELETE_FILE:
+                handle_delete_file(client_index, data);
+                break;
+            case CMD_RENAME_FILE:
+                handle_move_path(client_index, data, 0);
+                break;
+            case CMD_MOVE_FILE:
+                handle_move_path(client_index, data, 0);
+                break;
+
+            // Directory operations
+            case CMD_MKDIR:
+                handle_mkdir(client_index, data);
+                break;
+            case CMD_RMDIR:
+                handle_rmdir(client_index, data);
+                break;
+            case CMD_RENAME_DIR:
+                handle_move_path(client_index, data, 1);
+                break;
+            case CMD_MOVE_DIR:
+                handle_move_path(client_index, data, 1);
+                break;
                 
             default:
-                printf("Unknown command: %u\n", header.command);
+                LOG_WARN("Unknown command: %u", header.command);
                 send_response(client_index, RESP_ERROR, "Unknown command");
                 break;
         }
@@ -702,14 +1105,24 @@ int main() {
     struct sockaddr_in server_addr, client_addr;
     socklen_t addr_len = sizeof(client_addr);
     
+    // Logger (stdout/stderr + file)
+    if (log_init("logs/server.log", LOG_LEVEL_INFO) != 0) {
+        fprintf(stderr, "Failed to initialize logger (logs/server.log)\n");
+    }
+
     // Khởi tạo databases
     if (init_user_db() < 0) {
-        fprintf(stderr, "Failed to initialize user database\n");
+        LOG_ERROR("Failed to initialize user database");
         exit(EXIT_FAILURE);
     }
     
     if (init_group_db() < 0) {
-        fprintf(stderr, "Failed to initialize group database\n");
+        LOG_ERROR("Failed to initialize group database");
+        exit(EXIT_FAILURE);
+    }
+
+    if (file_service_init() != 0) {
+        LOG_ERROR("Failed to initialize file storage: %s", strerror(errno));
         exit(EXIT_FAILURE);
     }
     
@@ -745,8 +1158,8 @@ int main() {
         exit(EXIT_FAILURE);
     }
     
-    printf("=== File Sharing Server Started ===\n");
-    printf("Server listening on port %d...\n", PORT);
+    LOG_INFO("=== File Sharing Server Started ===");
+    LOG_INFO("Server listening on port %d...", PORT);
     
     // Accept connections
     while (1) {
@@ -756,13 +1169,13 @@ int main() {
             continue;
         }
         
-        printf("New connection from %s:%d\n", 
-               inet_ntoa(client_addr.sin_addr), 
-               ntohs(client_addr.sin_port));
+        LOG_INFO("New connection from %s:%d", 
+                 inet_ntoa(client_addr.sin_addr), 
+                 ntohs(client_addr.sin_port));
         
         int client_index = add_client(client_fd);
         if (client_index == -1) {
-            printf("Max clients reached, rejecting connection\n");
+            LOG_WARN("Max clients reached, rejecting connection");
             close(client_fd);
             continue;
         }
@@ -783,5 +1196,6 @@ int main() {
     }
     
     close(server_fd);
+    log_close();
     return 0;
 }

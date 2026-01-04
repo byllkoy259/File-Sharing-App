@@ -52,3 +52,18 @@ Mở hai cửa sổ terminal riêng biệt:
 ```bash
 make clean
 ```
+
+## File features (new)
+
+Sau khi đăng nhập, menu client có thêm các mục:
+- List directory contents (CMD_LIST_FILES)
+- Upload file (chunking)
+- Download file (chunking)
+- Delete / Rename / Move file (owner-only)
+- Mkdir / Rmdir / Rename / Move directory (một số thao tác owner-only)
+
+Server lưu file theo thư mục:
+- storage/group_<group_id>/...
+
+Log server:
+- logs/server.log (timestamp, level, thread id)

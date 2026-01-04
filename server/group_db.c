@@ -1,4 +1,5 @@
 #include "group_db.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -63,7 +64,7 @@ int init_group_db() {
     }
     fclose(fp);
     
-    printf("Group database initialized (next_id: %u)\n", next_group_id);
+    LOG_INFO("Group database initialized (next_id: %u)", next_group_id);
     return 0;
 }
 
@@ -116,7 +117,7 @@ int create_group(const char *group_name, const char *owner) {
     }
     fclose(fp);
     
-    printf("Group created: %s (ID: %u) by %s\n", group_name, group.group_id, owner);
+    LOG_INFO("Group created: %s (ID: %u) by %s", group_name, group.group_id, owner);
     return group.group_id;
 }
 
@@ -211,7 +212,7 @@ int add_member_to_group(uint32_t group_id, const char *username, const char *req
         fclose(fp);
     }
     
-    printf("Member added: %s to group %u\n", username, group_id);
+    LOG_INFO("Member added: %s to group %u", username, group_id);
     return 0;
 }
 
@@ -272,7 +273,7 @@ int remove_member_from_group(uint32_t group_id, const char *username, const char
         fclose(fp);
     }
     
-    printf("Member removed: %s from group %u\n", username, group_id);
+    LOG_INFO("Member removed: %s from group %u", username, group_id);
     return 0;
 }
 
@@ -433,7 +434,7 @@ int delete_group(uint32_t group_id, const char *username) {
         fclose(fp);
     }
     
-    printf("Group deleted: %u by %s\n", group_id, username);
+    LOG_INFO("Group deleted: %u by %s", group_id, username);
     return 0;
 }
 

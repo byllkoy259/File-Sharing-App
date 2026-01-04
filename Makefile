@@ -14,7 +14,8 @@ CLIENT_BIN = $(BIN_DIR)/client
 
 # Source files
 COMMON_SRC = $(COMMON_DIR)/protocol.c
-SERVER_SRC = $(SERVER_DIR)/server.c $(SERVER_DIR)/user_db.c $(SERVER_DIR)/group_db.c
+SERVER_SRC = $(SERVER_DIR)/server.c $(SERVER_DIR)/user_db.c $(SERVER_DIR)/group_db.c \
+	$(SERVER_DIR)/logger.c $(SERVER_DIR)/fs_utils.c $(SERVER_DIR)/file_service.c
 CLIENT_SRC = $(CLIENT_DIR)/client.c
 
 # Object files

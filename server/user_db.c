@@ -1,7 +1,9 @@
 #include "user_db.h"
+#include "logger.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <errno.h>
 #include <sys/stat.h>
 #include <openssl/sha.h>
 
@@ -28,12 +30,12 @@ int init_user_db() {
     // Tạo file nếu chưa có
     FILE *fp = fopen(USER_DB_FILE, "ab+");
     if (fp == NULL) {
-        perror("Failed to initialize user database");
+        LOG_ERROR("Failed to initialize user database: %s", strerror(errno));
         return -1;
     }
     fclose(fp);
-    
-    printf("User database initialized\n");
+
+    LOG_INFO("User database initialized");
     return 0;
 }
 
@@ -78,18 +80,18 @@ int register_user(const char *username, const char *password) {
     // Lưu vào file
     FILE *fp = fopen(USER_DB_FILE, "ab");
     if (fp == NULL) {
-        perror("Failed to open user database");
+        LOG_ERROR("Failed to open user database: %s", strerror(errno));
         return -2;
     }
     
     if (fwrite(&user, sizeof(UserRecord), 1, fp) != 1) {
-        perror("Failed to write user record");
+        LOG_ERROR("Failed to write user record: %s", strerror(errno));
         fclose(fp);
         return -3;
     }
     
     fclose(fp);
-    printf("User registered: %s\n", username);
+    LOG_INFO("User registered: %s", username);
     return 0;
 }
 

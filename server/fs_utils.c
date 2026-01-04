@@ -1,0 +1,156 @@
+#include "fs_utils.h"
+
+#include <string.h>
+#include <errno.h>
+#include <sys/stat.h>
+#include <unistd.h>
+
+static int is_sep(char c) {
+    return (c == '/') || (c == '\\');
+}
+
+int sanitize_rel_path(const char *in, char *out, size_t out_sz) {
+    if (!out || out_sz == 0) {
+        errno = EINVAL;
+        return -1;
+    }
+    out[0] = '\0';
+
+    if (!in || in[0] == '\0') {
+        return 0;
+    }
+
+    // tuyệt đối không cho absolute path hoặc drive letter
+    if (is_sep(in[0])) {
+        errno = EACCES;
+        return -1;
+    }
+    if (strchr(in, ':') != NULL) {
+        errno = EACCES;
+        return -1;
+    }
+
+    // normalize: đổi \\ -> / và bỏ lặp //
+    char tmp[1024];
+    size_t ti = 0;
+    for (size_t i = 0; in[i] != '\0' && ti + 1 < sizeof(tmp); i++) {
+        char c = in[i];
+        if (c == '\\') c = '/';
+        // bỏ double slash
+        if (c == '/' && ti > 0 && tmp[ti - 1] == '/') {
+            continue;
+        }
+        tmp[ti++] = c;
+    }
+    tmp[ti] = '\0';
+
+    // tách segment, không cho phép ".." hoặc "."
+    char result[1024];
+    size_t ri = 0;
+    size_t start = 0;
+    while (1) {
+        size_t end = start;
+        while (tmp[end] != '/' && tmp[end] != '\0') end++;
+        size_t seglen = end - start;
+
+        if (seglen == 0) {
+            // skip
+        } else if (seglen == 1 && tmp[start] == '.') {
+            // skip
+        } else if (seglen == 2 && tmp[start] == '.' && tmp[start + 1] == '.') {
+            errno = EACCES;
+            return -1;
+        } else {
+            if (ri != 0) {
+                if (ri + 1 >= sizeof(result)) {
+                    errno = ENAMETOOLONG;
+                    return -1;
+                }
+                result[ri++] = '/';
+            }
+            if (ri + seglen >= sizeof(result)) {
+                errno = ENAMETOOLONG;
+                return -1;
+            }
+            memcpy(result + ri, tmp + start, seglen);
+            ri += seglen;
+        }
+
+        if (tmp[end] == '\0') break;
+        start = end + 1;
+    }
+    result[ri] = '\0';
+
+    if (strlen(result) + 1 > out_sz) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    strcpy(out, result);
+    return 0;
+}
+
+int mkdir_p(const char *path, mode_t mode) {
+    if (!path || path[0] == '\0') {
+        errno = EINVAL;
+        return -1;
+    }
+
+    char tmp[1024];
+    size_t len = strlen(path);
+    if (len >= sizeof(tmp)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    strcpy(tmp, path);
+
+    // bỏ trailing '/'
+    while (len > 1 && tmp[len - 1] == '/') {
+        tmp[len - 1] = '\0';
+        len--;
+    }
+
+    for (size_t i = 1; tmp[i] != '\0'; i++) {
+        if (tmp[i] == '/') {
+            tmp[i] = '\0';
+            if (mkdir(tmp, mode) != 0) {
+                if (errno != EEXIST) {
+                    tmp[i] = '/';
+                    return -1;
+                }
+            }
+            tmp[i] = '/';
+        }
+    }
+
+    if (mkdir(tmp, mode) != 0) {
+        if (errno != EEXIST) return -1;
+    }
+    return 0;
+}
+
+int ensure_parent_dir(const char *filepath, mode_t mode) {
+    if (!filepath) {
+        errno = EINVAL;
+        return -1;
+    }
+    char tmp[1024];
+    size_t len = strlen(filepath);
+    if (len >= sizeof(tmp)) {
+        errno = ENAMETOOLONG;
+        return -1;
+    }
+    strcpy(tmp, filepath);
+
+    // tìm last '/'
+    char *slash = strrchr(tmp, '/');
+    if (!slash) {
+        // current dir
+        return 0;
+    }
+    if (slash == tmp) {
+        // root
+        return 0;
+    }
+    *slash = '\0';
+    return mkdir_p(tmp, mode);
+}
