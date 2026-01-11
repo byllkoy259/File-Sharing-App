@@ -157,6 +157,22 @@ int path_move(uint32_t group_id, const char *rel_src, const char *rel_dst) {
     return rename(abs_src, abs_dst);
 }
 
+int path_copy(uint32_t group_id, const char *rel_src, const char *rel_dst) {
+    char abs_src[1024];
+    char abs_dst[1024];
+    if (resolve_group_path(group_id, rel_src, abs_src, sizeof(abs_src)) != 0) {
+        return -1;
+    }
+    if (resolve_group_path(group_id, rel_dst, abs_dst, sizeof(abs_dst)) != 0) {
+        return -1;
+    }
+    // ensure parent dir for dst
+    if (ensure_parent_dir(abs_dst, 0700) != 0) {
+        return -1;
+    }
+    return fs_copy_recursive(abs_src, abs_dst);
+}
+
 int dir_mkdir(uint32_t group_id, const char *rel_path) {
     char abs_path[1024];
     if (resolve_group_path(group_id, rel_path, abs_path, sizeof(abs_path)) != 0) {

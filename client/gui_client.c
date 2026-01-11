@@ -1353,6 +1353,49 @@ void action_move_file(AppState *state, const char *filename, int is_dir) {
     gtk_widget_destroy(dialog);
 }
 
+// Helper: Thực hiện sao chép
+void action_copy_file(AppState *state, const char *filename, int is_dir) {
+    GtkWidget *dialog = gtk_dialog_new_with_buttons("Copy to...", GTK_WINDOW(state->window), GTK_DIALOG_MODAL, "Cancel", GTK_RESPONSE_CANCEL, "Copy", GTK_RESPONSE_ACCEPT, NULL);
+    GtkWidget *content = gtk_dialog_get_content_area(GTK_DIALOG(dialog));
+    GtkWidget *entry = gtk_entry_new();
+    gtk_entry_set_placeholder_text(GTK_ENTRY(entry), "Destination Path (e.g., folder/subfolder)");
+    gtk_container_add(GTK_CONTAINER(content), entry);
+    gtk_widget_show_all(dialog);
+
+    if (gtk_dialog_run(GTK_DIALOG(dialog)) == GTK_RESPONSE_ACCEPT) {
+        const char *dest_dir = gtk_entry_get_text(GTK_ENTRY(entry));
+        MoveRequest req;
+        req.group_id = state->current_group_id;
+        
+        char src_path[MAX_PATH * 2], dst_path[MAX_PATH * 2];
+        if (strlen(state->current_path) == 0) snprintf(src_path, sizeof(src_path), "%s", filename);
+        else snprintf(src_path, sizeof(src_path), "%s/%s", state->current_path, filename);
+        
+        // Destination logic: dest_dir + filename
+        if (strlen(dest_dir) == 0 || strcmp(dest_dir, ".") == 0) snprintf(dst_path, sizeof(dst_path), "%s", filename);
+        else snprintf(dst_path, sizeof(dst_path), "%s/%s", dest_dir, filename);
+
+        strncpy(req.src, src_path, MAX_PATH - 1);
+        strncpy(req.dst, dst_path, MAX_PATH - 1);
+
+        MessageHeader header = {is_dir ? CMD_COPY_DIR : CMD_COPY_FILE, sizeof(MoveRequest), state->session_id};
+        if (send_message(state->sockfd, &header, &req) >= 0) {
+            void *resp_data = NULL;
+            recv_message(state->sockfd, &header, &resp_data);
+            if (resp_data) {
+                Response *r = (Response *)resp_data;
+                if (header.command != RESP_SUCCESS) {
+                    GtkWidget *msg = gtk_message_dialog_new(GTK_WINDOW(state->window), GTK_DIALOG_DESTROY_WITH_PARENT, GTK_MESSAGE_ERROR, GTK_BUTTONS_OK, "Copy failed: %s", r->message);
+                    gtk_dialog_run(GTK_DIALOG(msg)); gtk_widget_destroy(msg);
+                }
+                free(resp_data);
+            }
+            refresh_file_list(state);
+        }
+    }
+    gtk_widget_destroy(dialog);
+}
+
 // --- Wrappers cho Context Menu ---
 void on_menu_delete(GtkWidget *menuitem, gpointer data) {
     (void)data;
@@ -1378,6 +1421,14 @@ void on_menu_move(GtkWidget *menuitem, gpointer data) {
     action_move_file(state, filename, is_dir);
 }
 
+void on_menu_copy(GtkWidget *menuitem, gpointer data) {
+    (void)data;
+    AppState *state = (AppState *)g_object_get_data(G_OBJECT(menuitem), "state");
+    char *filename = (char *)g_object_get_data(G_OBJECT(menuitem), "filename");
+    int is_dir = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(menuitem), "is_dir"));
+    action_copy_file(state, filename, is_dir);
+}
+
 gboolean on_file_list_right_click(GtkWidget *widget, GdkEventButton *event, gpointer data) {
     if (event->type == GDK_BUTTON_PRESS && event->button == 3) { // Right click
         GtkListBoxRow *row = gtk_list_box_get_row_at_y(GTK_LIST_BOX(widget), event->y);
@@ -1393,19 +1444,23 @@ gboolean on_file_list_right_click(GtkWidget *widget, GdkEventButton *event, gpoi
         GtkWidget *item_del = gtk_menu_item_new_with_label("Delete");
         GtkWidget *item_ren = gtk_menu_item_new_with_label("Rename");
         GtkWidget *item_mov = gtk_menu_item_new_with_label("Move");
+        GtkWidget *item_cpy = gtk_menu_item_new_with_label("Copy");
 
         // Attach data to menu items
         g_object_set_data(G_OBJECT(item_del), "state", state); g_object_set_data(G_OBJECT(item_del), "filename", filename); g_object_set_data(G_OBJECT(item_del), "is_dir", GINT_TO_POINTER(is_dir));
         g_object_set_data(G_OBJECT(item_ren), "state", state); g_object_set_data(G_OBJECT(item_ren), "filename", filename); g_object_set_data(G_OBJECT(item_ren), "is_dir", GINT_TO_POINTER(is_dir));
         g_object_set_data(G_OBJECT(item_mov), "state", state); g_object_set_data(G_OBJECT(item_mov), "filename", filename); g_object_set_data(G_OBJECT(item_mov), "is_dir", GINT_TO_POINTER(is_dir));
+        g_object_set_data(G_OBJECT(item_cpy), "state", state); g_object_set_data(G_OBJECT(item_cpy), "filename", filename); g_object_set_data(G_OBJECT(item_cpy), "is_dir", GINT_TO_POINTER(is_dir));
 
         g_signal_connect(item_del, "activate", G_CALLBACK(on_menu_delete), NULL);
         g_signal_connect(item_ren, "activate", G_CALLBACK(on_menu_rename), NULL);
         g_signal_connect(item_mov, "activate", G_CALLBACK(on_menu_move), NULL);
+        g_signal_connect(item_cpy, "activate", G_CALLBACK(on_menu_copy), NULL);
 
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_del);
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_ren);
         gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_mov);
+        gtk_menu_shell_append(GTK_MENU_SHELL(menu), item_cpy);
         
         gtk_widget_show_all(menu);
         gtk_menu_popup_at_pointer(GTK_MENU(menu), (GdkEvent *)event);

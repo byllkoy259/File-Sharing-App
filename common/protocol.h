@@ -48,12 +48,14 @@ typedef enum {
     CMD_RENAME_FILE = 23,
     CMD_LIST_FILES = 24,
     CMD_MOVE_FILE = 25,
+    CMD_COPY_FILE = 40,
 
     // Directory operations
     CMD_MKDIR = 26,
     CMD_RMDIR = 27,
     CMD_RENAME_DIR = 28,
     CMD_MOVE_DIR = 29,
+    CMD_COPY_DIR = 41,
 
     // Response codes
     RESP_SUCCESS = 100,

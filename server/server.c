@@ -746,6 +746,24 @@ void handle_move_path(int client_index, void *data, int is_dir) {
     send_response(client_index, RESP_SUCCESS, "Move/rename OK");
 }
 
+void handle_copy_path(int client_index, void *data, int is_dir) {
+    if (!require_logged_in(client_index)) return;
+    MoveRequest *req = (MoveRequest *)data;
+    // Cho phép thành viên copy (tương tự upload)
+    if (!is_member_of_group(req->group_id, clients[client_index].username)) {
+        send_response(client_index, RESP_PERMISSION_DENIED, "You are not a member of this group");
+        return;
+    }
+    if (path_copy(req->group_id, req->src, req->dst) != 0) {
+        char msg[256];
+        snprintf(msg, sizeof(msg), "Failed to %s: %s", is_dir ? "copy directory" : "copy file", strerror(errno));
+        send_response(client_index, RESP_ERROR, msg);
+        return;
+    }
+    LOG_INFO("copy: user=%s group=%u src='%s' dst='%s'", clients[client_index].username, req->group_id, req->src, req->dst);
+    send_response(client_index, RESP_SUCCESS, "Copy OK");
+}
+
 void handle_upload_file(int client_index, void *data) {
     if (!require_logged_in(client_index)) return;
 
@@ -1068,6 +1086,12 @@ void *client_handler(void *arg) {
                 break;
             case CMD_MOVE_FILE:
                 handle_move_path(client_index, data, 0);
+                break;
+            case CMD_COPY_FILE:
+                handle_copy_path(client_index, data, 0);
+                break;
+            case CMD_COPY_DIR:
+                handle_copy_path(client_index, data, 1);
                 break;
 
             // Directory operations

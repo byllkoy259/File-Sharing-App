@@ -19,6 +19,9 @@ int file_delete(uint32_t group_id, const char *rel_path);
 // Move/rename (dùng cho file và thư mục)
 int path_move(uint32_t group_id, const char *rel_src, const char *rel_dst);
 
+// Copy (dùng cho file và thư mục)
+int path_copy(uint32_t group_id, const char *rel_src, const char *rel_dst);
+
 // mkdir/rmdir
 int dir_mkdir(uint32_t group_id, const char *rel_path);
 int dir_rmdir(uint32_t group_id, const char *rel_path);

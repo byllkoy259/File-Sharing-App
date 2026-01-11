@@ -1,8 +1,10 @@
 #include "fs_utils.h"
 
+#include <stdio.h>
 #include <string.h>
 #include <errno.h>
 #include <sys/stat.h>
+#include <dirent.h>
 #include <unistd.h>
 
 static int is_sep(char c) {
@@ -153,4 +155,62 @@ int ensure_parent_dir(const char *filepath, mode_t mode) {
     }
     *slash = '\0';
     return mkdir_p(tmp, mode);
+}
+
+int fs_copy_recursive(const char *src, const char *dst) {
+    struct stat st;
+    if (stat(src, &st) != 0) return -1;
+
+    // Kiểm tra nếu src và dst là cùng một file (dựa trên inode)
+    struct stat st_dst;
+    if (stat(dst, &st_dst) == 0) {
+        if (st.st_dev == st_dst.st_dev && st.st_ino == st_dst.st_ino) {
+            return 0; // Cùng file, không làm gì cả (tránh truncate)
+        }
+    }
+
+    if (S_ISDIR(st.st_mode)) {
+        // Là thư mục: tạo thư mục đích
+        if (mkdir(dst, st.st_mode) != 0 && errno != EEXIST) return -1;
+
+        DIR *dir = opendir(src);
+        if (!dir) return -1;
+
+        struct dirent *entry;
+        while ((entry = readdir(dir)) != NULL) {
+            if (strcmp(entry->d_name, ".") == 0 || strcmp(entry->d_name, "..") == 0) continue;
+
+            char new_src[1024];
+            char new_dst[1024];
+            
+            if (snprintf(new_src, sizeof(new_src), "%s/%s", src, entry->d_name) >= (int)sizeof(new_src)) continue;
+            if (snprintf(new_dst, sizeof(new_dst), "%s/%s", dst, entry->d_name) >= (int)sizeof(new_dst)) continue;
+
+            if (fs_copy_recursive(new_src, new_dst) != 0) {
+                closedir(dir);
+                return -1;
+            }
+        }
+        closedir(dir);
+        return 0;
+    } else if (S_ISREG(st.st_mode)) {
+        // Là file: copy nội dung
+        FILE *in = fopen(src, "rb");
+        if (!in) return -1;
+        FILE *out = fopen(dst, "wb");
+        if (!out) { fclose(in); return -1; }
+
+        char buf[4096];
+        size_t n;
+        while ((n = fread(buf, 1, sizeof(buf), in)) > 0) {
+            if (fwrite(buf, 1, n, out) != n) {
+                fclose(in); fclose(out); return -1;
+            }
+        }
+        fclose(in);
+        fclose(out);
+        chmod(dst, st.st_mode); // Giữ nguyên permission
+        return 0;
+    }
+    return -1; // Không hỗ trợ loại file khác (symlink, socket...)
 }

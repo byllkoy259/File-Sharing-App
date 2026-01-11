@@ -648,10 +648,7 @@ void do_transfer_owner() {
     free(data);
 }
 
-// ==============================
 // File / Directory operations
-// ==============================
-
 static void normalize_path_input(char *path) {
     if (!path) return;
     if (strcmp(path, ".") == 0) {
@@ -1020,6 +1017,39 @@ void do_move_or_rename(int cmd, const char *title) {
     free(data);
 }
 
+void do_copy(int cmd, const char *title) {
+    if (session_id == 0) {
+        printf("Please login first!\n");
+        return;
+    }
+    MoveRequest req;
+    memset(&req, 0, sizeof(req));
+    printf("\n=== %s ===\n", title);
+    printf("Group ID: ");
+    scanf("%u", &req.group_id);
+    printf("Source path: ");
+    scanf("%511s", req.src);
+    printf("Destination path: ");
+    scanf("%511s", req.dst);
+
+    MessageHeader header;
+    header.command = cmd;
+    header.data_length = sizeof(MoveRequest);
+    header.session_id = session_id;
+    if (send_message(sockfd, &header, &req) < 0) {
+        printf("Failed to send request\n");
+        return;
+    }
+    void *data = NULL;
+    if (recv_message(sockfd, &header, &data) < 0) {
+        printf("Failed to receive response\n");
+        return;
+    }
+    Response *resp = (Response *)data;
+    printf("%s %s\n", (header.command == RESP_SUCCESS) ? "✓" : "✗", resp->message);
+    free(data);
+}
+
 void do_mkdir() {
     if (session_id == 0) {
         printf("Please login first!\n");
@@ -1122,8 +1152,10 @@ void show_main_menu() {
     printf("21. Remove directory (owner)\n");
     printf("22. Rename directory (owner)\n");
     printf("23. Move directory (owner)\n");
+    printf("24. Copy file\n");
+    printf("25. Copy directory\n");
     printf("--------------------------------------\n");
-    printf("24. Logout\n");
+    printf("26. Logout\n");
     printf("0. Exit\n");
     printf("======================================\n");
     printf("Choose option: ");
@@ -1178,7 +1210,9 @@ int main() {
                 case 21: do_rmdir(); break;
                 case 22: do_move_or_rename(CMD_RENAME_DIR, "RENAME DIRECTORY"); break;
                 case 23: do_move_or_rename(CMD_MOVE_DIR, "MOVE DIRECTORY"); break;
-                case 24: // Logout
+                case 24: do_copy(CMD_COPY_FILE, "COPY FILE"); break;
+                case 25: do_copy(CMD_COPY_DIR, "COPY DIRECTORY"); break;
+                case 26: // Logout
                     MessageHeader header;
                     header.command = CMD_LOGOUT;
                     header.data_length = 0;

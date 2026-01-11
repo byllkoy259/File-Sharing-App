@@ -17,4 +17,7 @@ int mkdir_p(const char *path, mode_t mode);
 // Đảm bảo tồn tại thư mục cha của filepath
 int ensure_parent_dir(const char *filepath, mode_t mode);
 
+// Sao chép file hoặc thư mục (đệ quy)
+int fs_copy_recursive(const char *src, const char *dst);
+
 #endif

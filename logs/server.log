@@ -265,3 +265,202 @@
 [2026-01-05 12:25:46.305] [INFO] [tid=140251945273152] New connection from 127.0.0.1:47216
 [2026-01-05 12:25:46.306] [INFO] [tid=140251936876096] Client connected [Index: 0, Session: 3]
 [2026-01-05 12:25:50.459] [INFO] [tid=140251936876096] Client disconnected [Index: 0]
+[2026-01-05 15:21:18.722] [INFO] [tid=140022399596352] User database initialized
+[2026-01-05 15:21:18.821] [INFO] [tid=140022399596352] Group database initialized (next_id: 4)
+[2026-01-05 15:21:18.824] [INFO] [tid=140022399596352] === File Sharing Server Started ===
+[2026-01-05 15:21:18.824] [INFO] [tid=140022399596352] Server listening on port 8888...
+[2026-01-05 15:21:56.967] [INFO] [tid=140022399596352] New connection from 127.0.0.1:59510
+[2026-01-05 15:21:56.967] [INFO] [tid=140022399592000] Client connected [Index: 0, Session: 1]
+[2026-01-05 15:21:56.968] [INFO] [tid=140022399592000] Register request: duc
+[2026-01-05 15:21:56.986] [INFO] [tid=140022399592000] User registered: duc
+[2026-01-05 15:22:09.490] [INFO] [tid=140022399592000] Login request: duc
+[2026-01-05 15:22:09.498] [INFO] [tid=140022399592000] User logged in: duc
+[2026-01-05 15:22:29.126] [INFO] [tid=140022399596352] New connection from 127.0.0.1:56342
+[2026-01-05 15:22:29.127] [INFO] [tid=140022391199296] Client connected [Index: 1, Session: 2]
+[2026-01-05 15:22:29.128] [INFO] [tid=140022391199296] Login request: dohieu
+[2026-01-05 15:22:29.134] [INFO] [tid=140022391199296] User logged in: dohieu
+[2026-01-05 15:22:29.138] [INFO] [tid=140022391199296] Sent 3 groups to dohieu
+[2026-01-05 15:22:38.424] [INFO] [tid=140022391199296] List files: user=dohieu group=3 path='' count=0
+[2026-01-05 15:22:40.986] [INFO] [tid=140022391199296] List files: user=dohieu group=2 path='' count=0
+[2026-01-05 15:22:52.047] [INFO] [tid=140022399592000] Member added: duc to group 2
+[2026-01-05 15:22:56.181] [INFO] [tid=140022391199296] Sent 3 groups to dohieu
+[2026-01-05 15:22:57.324] [INFO] [tid=140022391199296] List files: user=dohieu group=2 path='' count=0
+[2026-01-05 15:23:00.254] [INFO] [tid=140022391199296] Sent 3 members to dohieu for group 2
+[2026-01-05 15:23:02.936] [INFO] [tid=140022399592000] Sent 1 groups to duc
+[2026-01-05 15:23:09.632] [INFO] [tid=140022391199296] Member removed: duc from group 2
+[2026-01-05 15:23:18.370] [INFO] [tid=140022399592000] Create group request: vjsdvjsd by duc
+[2026-01-05 15:23:18.383] [INFO] [tid=140022399592000] Group created: vjsdvjsd (ID: 4) by duc
+[2026-01-05 15:23:18.416] [INFO] [tid=140022399592000] Sent 1 groups to duc
+[2026-01-05 15:23:21.109] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=0
+[2026-01-05 15:23:35.706] [INFO] [tid=140022399592000] upload start: user=duc group=4 path='hello.txt' size=10
+[2026-01-05 15:23:35.754] [INFO] [tid=140022399592000] upload complete: user=duc group=4 path='hello.txt' bytes=10
+[2026-01-05 15:23:37.931] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=1
+[2026-01-05 15:23:50.246] [INFO] [tid=140022399592000] mkdir: user=duc group=4 path='sdvsd'
+[2026-01-05 15:23:50.308] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=2
+[2026-01-05 15:23:56.747] [INFO] [tid=140022399592000] rmdir: owner=duc group=4 path='sdvsd'
+[2026-01-05 15:23:56.816] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=1
+[2026-01-05 15:24:00.012] [INFO] [tid=140022399592000] mkdir: user=duc group=4 path='vsdvsdv'
+[2026-01-05 15:24:00.085] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=2
+[2026-01-05 15:24:08.350] [INFO] [tid=140022399592000] move: owner=duc group=4 src='hello.txt' dst='vsdvsdv/hello.txt'
+[2026-01-05 15:24:08.410] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=1
+[2026-01-05 15:24:09.412] [INFO] [tid=140022399592000] List files: user=duc group=4 path='vsdvsdv' count=1
+[2026-01-05 15:24:17.726] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=1
+[2026-01-05 15:24:35.706] [INFO] [tid=140022391199296] Member added: dohieu to group 4
+[2026-01-05 15:24:40.502] [INFO] [tid=140022399592000] Sent 1 groups to duc
+[2026-01-05 15:24:41.229] [INFO] [tid=140022399592000] List files: user=duc group=4 path='' count=1
+[2026-01-05 15:24:52.742] [INFO] [tid=140022399592000] Sent 2 members to duc for group 4
+[2026-01-05 15:24:59.289] [INFO] [tid=140022399592000] List files: user=duc group=4 path='vsdvsdv' count=1
+[2026-01-05 15:25:18.706] [INFO] [tid=140022391199296] Client disconnected [Index: 1]
+[2026-01-05 15:25:30.639] [INFO] [tid=140022399592000] Client disconnected [Index: 0]
+[2026-01-11 23:15:06.152] [INFO] [tid=139930934990656] User database initialized
+[2026-01-11 23:15:06.258] [INFO] [tid=139930934990656] Group database initialized (next_id: 5)
+[2026-01-11 23:15:06.261] [INFO] [tid=139930934990656] === File Sharing Server Started ===
+[2026-01-11 23:15:06.261] [INFO] [tid=139930934990656] Server listening on port 8888...
+[2026-01-11 23:15:40.983] [INFO] [tid=139930934990656] New connection from 127.0.0.1:54798
+[2026-01-11 23:15:40.987] [INFO] [tid=139930934986304] Client connected [Index: 0, Session: 1]
+[2026-01-11 23:15:40.990] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:15:44.338] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:15:45.985] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:15:55.946] [INFO] [tid=139930934986304] Register request: baoden
+[2026-01-11 23:16:09.096] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:16:11.455] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:16:13.585] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:16:15.475] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:16:17.375] [INFO] [tid=139930934986304] Login request: baoden
+[2026-01-11 23:16:17.386] [INFO] [tid=139930934986304] User logged in: baoden
+[2026-01-11 23:16:17.399] [INFO] [tid=139930934986304] Sent 3 groups to baoden
+[2026-01-11 23:16:30.667] [INFO] [tid=139930934990656] New connection from 127.0.0.1:58888
+[2026-01-11 23:16:30.670] [INFO] [tid=139930926593600] Client connected [Index: 1, Session: 2]
+[2026-01-11 23:16:30.672] [INFO] [tid=139930926593600] Login request: dohieu
+[2026-01-11 23:16:30.680] [INFO] [tid=139930926593600] User logged in: dohieu
+[2026-01-11 23:16:30.792] [INFO] [tid=139930926593600] Sent 4 groups to dohieu
+[2026-01-11 23:16:37.751] [INFO] [tid=139930934986304] List files: user=baoden group=1 path='' count=1
+[2026-01-11 23:16:44.944] [INFO] [tid=139930934986304] mkdir: user=baoden group=1 path='hi'
+[2026-01-11 23:16:45.031] [INFO] [tid=139930934986304] List files: user=baoden group=1 path='' count=2
+[2026-01-11 23:16:51.485] [INFO] [tid=139930934986304] move: owner=baoden group=1 src='hello.txt' dst='hi/hello.txt'
+[2026-01-11 23:16:51.569] [INFO] [tid=139930934986304] List files: user=baoden group=1 path='' count=1
+[2026-01-11 23:17:10.845] [INFO] [tid=139930926593600] Client logout [Index: 1]
+[2026-01-11 23:17:14.327] [INFO] [tid=139930934986304] Client logout [Index: 0]
+[2026-01-11 23:34:07.144] [INFO] [tid=140303813359424] User database initialized
+[2026-01-11 23:34:07.158] [INFO] [tid=140303813359424] Group database initialized (next_id: 5)
+[2026-01-11 23:34:07.161] [INFO] [tid=140303813359424] === File Sharing Server Started ===
+[2026-01-11 23:34:07.161] [INFO] [tid=140303813359424] Server listening on port 8888...
+[2026-01-11 23:34:21.023] [INFO] [tid=140303813359424] New connection from 127.0.0.1:58182
+[2026-01-11 23:34:21.024] [INFO] [tid=140303813355072] Client connected [Index: 0, Session: 1]
+[2026-01-11 23:34:21.024] [INFO] [tid=140303813355072] Login request: baoden
+[2026-01-11 23:34:21.035] [INFO] [tid=140303813355072] User logged in: baoden
+[2026-01-11 23:34:21.077] [INFO] [tid=140303813355072] Sent 3 groups to baoden
+[2026-01-11 23:34:23.471] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='' count=0
+[2026-01-11 23:35:14.958] [INFO] [tid=140303813355072] mkdir: user=baoden group=3 path='bao/den/hi.txt'
+[2026-01-11 23:35:15.035] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:35:16.556] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:35:17.791] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=1
+[2026-01-11 23:35:20.291] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den/hi.txt' count=0
+[2026-01-11 23:35:22.420] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=1
+[2026-01-11 23:35:24.555] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:35:25.404] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:35:35.777] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:35:36.268] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=1
+[2026-01-11 23:35:37.076] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den/hi.txt' count=0
+[2026-01-11 23:35:38.712] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=1
+[2026-01-11 23:35:48.077] [INFO] [tid=140303813355072] upload start: user=baoden group=3 path='bao/den/hello.txt' size=10
+[2026-01-11 23:35:48.100] [INFO] [tid=140303813355072] upload complete: user=baoden group=3 path='bao/den/hello.txt' bytes=10
+[2026-01-11 23:35:49.567] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=2
+[2026-01-11 23:36:02.965] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den/hi.txt' count=0
+[2026-01-11 23:36:06.199] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao/den' count=2
+[2026-01-11 23:36:23.157] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:36:23.705] [INFO] [tid=140303813355072] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:57:29.348] [INFO] [tid=140576891881280] User database initialized
+[2026-01-11 23:57:29.365] [INFO] [tid=140576891881280] Group database initialized (next_id: 5)
+[2026-01-11 23:57:29.368] [INFO] [tid=140576891881280] === File Sharing Server Started ===
+[2026-01-11 23:57:29.369] [INFO] [tid=140576891881280] Server listening on port 8888...
+[2026-01-11 23:57:45.629] [INFO] [tid=140576891881280] New connection from 127.0.0.1:38044
+[2026-01-11 23:57:45.630] [INFO] [tid=140576891876928] Client connected [Index: 0, Session: 1]
+[2026-01-11 23:57:45.630] [INFO] [tid=140576891876928] Login request: baoden
+[2026-01-11 23:57:45.636] [INFO] [tid=140576891876928] User logged in: baoden
+[2026-01-11 23:57:45.643] [INFO] [tid=140576891876928] Sent 3 groups to baoden
+[2026-01-11 23:57:54.573] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:58:05.480] [INFO] [tid=140576891876928] copy: user=baoden group=3 src='bao' dst='bao'
+[2026-01-11 23:58:05.544] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:58:11.390] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:58:13.864] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:58:16.535] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao/den' count=2
+[2026-01-11 23:58:27.260] [INFO] [tid=140576891876928] copy: user=baoden group=3 src='bao/den/hello.txt' dst='bao/hello.txt'
+[2026-01-11 23:58:27.339] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao/den' count=2
+[2026-01-11 23:58:29.136] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao' count=2
+[2026-01-11 23:58:34.838] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao/den' count=2
+[2026-01-11 23:58:36.088] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao' count=2
+[2026-01-11 23:58:38.857] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:58:42.742] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao' count=2
+[2026-01-11 23:58:47.368] [INFO] [tid=140576891876928] delete file: owner=baoden group=3 path='bao/hello.txt'
+[2026-01-11 23:58:47.448] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='bao' count=1
+[2026-01-11 23:58:51.497] [INFO] [tid=140576891876928] List files: user=baoden group=3 path='' count=1
+[2026-01-11 23:58:53.445] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='' count=1
+[2026-01-11 23:58:57.399] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='hi' count=1
+[2026-01-11 23:59:03.145] [INFO] [tid=140576891876928] copy: user=baoden group=1 src='hi/hello.txt' dst='hi/hello.txt'
+[2026-01-11 23:59:03.152] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='hi' count=1
+[2026-01-11 23:59:05.014] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='' count=1
+[2026-01-11 23:59:06.718] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='hi' count=1
+[2026-01-11 23:59:35.493] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='hi' count=1
+[2026-01-11 23:59:38.309] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='hi' count=1
+[2026-01-11 23:59:39.555] [INFO] [tid=140576891876928] List files: user=baoden group=1 path='' count=1
+[2026-01-11 23:59:43.084] [INFO] [tid=140576891876928] Client disconnected [Index: 0]
+[2026-01-12 00:00:23.670] [INFO] [tid=140088223954752] User database initialized
+[2026-01-12 00:00:23.703] [INFO] [tid=140088223954752] Group database initialized (next_id: 5)
+[2026-01-12 00:00:23.704] [INFO] [tid=140088223954752] === File Sharing Server Started ===
+[2026-01-12 00:00:23.704] [INFO] [tid=140088223954752] Server listening on port 8888...
+[2026-01-12 00:00:39.513] [INFO] [tid=140088223954752] New connection from 127.0.0.1:33466
+[2026-01-12 00:00:39.514] [INFO] [tid=140088223950400] Client connected [Index: 0, Session: 1]
+[2026-01-12 00:00:39.514] [INFO] [tid=140088223950400] Login request: baoden
+[2026-01-12 00:00:39.520] [INFO] [tid=140088223950400] User logged in: baoden
+[2026-01-12 00:00:39.528] [INFO] [tid=140088223950400] Sent 3 groups to baoden
+[2026-01-12 00:00:58.686] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=0
+[2026-01-12 00:01:05.944] [INFO] [tid=140088223950400] mkdir: user=baoden group=2 path='hi'
+[2026-01-12 00:01:06.030] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=1
+[2026-01-12 00:01:09.585] [INFO] [tid=140088223950400] copy: user=baoden group=2 src='hi' dst='hi'
+[2026-01-12 00:01:09.658] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=1
+[2026-01-12 00:01:10.820] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=0
+[2026-01-12 00:01:15.822] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=1
+[2026-01-12 00:01:20.222] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=0
+[2026-01-12 00:01:24.298] [INFO] [tid=140088223950400] mkdir: user=baoden group=2 path='hi/h'
+[2026-01-12 00:01:24.375] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=1
+[2026-01-12 00:01:38.620] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi/h' count=0
+[2026-01-12 00:01:42.154] [INFO] [tid=140088223950400] mkdir: user=baoden group=2 path='hi/h/gu'
+[2026-01-12 00:01:42.229] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi/h' count=1
+[2026-01-12 00:01:49.512] [INFO] [tid=140088223950400] copy: user=baoden group=2 src='hi/h/gu' dst='hi/gu'
+[2026-01-12 00:01:49.590] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi/h' count=1
+[2026-01-12 00:01:51.751] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=2
+[2026-01-12 00:01:56.820] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=1
+[2026-01-12 00:02:02.847] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=2
+[2026-01-12 00:02:09.642] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=2
+[2026-01-12 00:02:14.894] [INFO] [tid=140088223950400] copy: user=baoden group=2 src='hi/gu' dst='gu'
+[2026-01-12 00:02:14.962] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=2
+[2026-01-12 00:02:16.030] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=2
+[2026-01-12 00:02:26.822] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=2
+[2026-01-12 00:02:35.849] [INFO] [tid=140088223950400] upload start: user=baoden group=2 path='hi/hello.txt' size=10
+[2026-01-12 00:02:35.901] [INFO] [tid=140088223950400] upload complete: user=baoden group=2 path='hi/hello.txt' bytes=10
+[2026-01-12 00:02:37.557] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=3
+[2026-01-12 00:02:42.653] [INFO] [tid=140088223950400] copy: user=baoden group=2 src='hi/hello.txt' dst='hello.txt'
+[2026-01-12 00:02:42.721] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=3
+[2026-01-12 00:02:44.492] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=3
+[2026-01-12 00:02:51.878] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=3
+[2026-01-12 00:02:59.752] [INFO] [tid=140088223950400] copy: user=baoden group=2 src='hi/hello.txt' dst='hi/hello.txt'
+[2026-01-12 00:02:59.851] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=3
+[2026-01-12 00:03:01.355] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=3
+[2026-01-12 00:03:03.060] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='hi' count=3
+[2026-01-12 00:03:24.484] [INFO] [tid=140088223950400] List files: user=baoden group=2 path='' count=3
+[2026-01-12 00:03:26.126] [INFO] [tid=140088223950400] Client disconnected [Index: 0]
+[2026-01-12 00:19:52.420] [INFO] [tid=140539968829248] User database initialized
+[2026-01-12 00:19:52.444] [INFO] [tid=140539968829248] Group database initialized (next_id: 5)
+[2026-01-12 00:19:52.445] [INFO] [tid=140539968829248] === File Sharing Server Started ===
+[2026-01-12 00:19:52.445] [INFO] [tid=140539968829248] Server listening on port 8888...
+[2026-01-12 00:20:18.502] [INFO] [tid=140539968829248] New connection from 127.0.0.1:40774
+[2026-01-12 00:20:18.502] [INFO] [tid=140539968824896] Client connected [Index: 0, Session: 1]
+[2026-01-12 00:20:18.503] [INFO] [tid=140539968824896] Login request: baoden
+[2026-01-12 00:20:18.519] [INFO] [tid=140539968824896] User logged in: baoden
+[2026-01-12 00:20:18.526] [INFO] [tid=140539968824896] Sent 3 groups to baoden
+[2026-01-12 00:20:21.232] [INFO] [tid=140539968824896] List files: user=baoden group=3 path='' count=1
+[2026-01-12 00:20:28.111] [INFO] [tid=140539968824896] List files: user=baoden group=2 path='' count=3
+[2026-01-12 00:20:33.932] [INFO] [tid=140539968824896] copy: user=baoden group=2 src='hello.txt' dst='hello.txt'
+[2026-01-12 00:20:34.004] [INFO] [tid=140539968824896] List files: user=baoden group=2 path='' count=3
+[2026-01-12 00:20:41.303] [INFO] [tid=140539968824896] Client disconnected [Index: 0]
